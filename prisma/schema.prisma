@@ -1,0 +1,180 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["core", "payments", "events", "audit", "ops"]
+}
+
+/* ==================== CORE SCHEMA ==================== */
+
+model Merchant {
+  id                       String    @id @default(uuid()) @db.Uuid
+  email                    String    @unique @db.VarChar(255)
+  passwordHash             String    @db.VarChar(255)
+  businessName             String    @db.VarChar(100)
+  defaultCurrency          String    @default("USD") @db.VarChar(3)
+  settleTolerancePct       Decimal   @default(2.0) @db.Decimal(5, 2)
+  allowUnsolicitedPayments Boolean   @default(true)
+  apiKeyHash               String?   @unique @db.VarChar(64)
+  webhookSecret            String    @default(uuid()) @db.VarChar(64)
+  suspendedAt              DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  paymentRequests PaymentRequest[]
+  paymentIntents  PaymentIntent[]
+  webhooks        Webhook[]
+  auditLogs       AuditLog[]
+
+  @@schema("core")
+  @@map("merchants")
+}
+
+model PluginRegistry {
+  id            String    @id @default(uuid()) @db.Uuid
+  pluginId      String    @unique @db.VarChar(50)
+  baseUrl       String    @db.VarChar(255)
+  secretHash    String    @db.Text
+  enabled       Boolean   @default(true)
+  allowedChains String[]
+  lastSeenAt    DateTime?
+  healthUrl     String?   @db.VarChar(255)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@schema("core")
+  @@map("plugin_registry")
+}
+
+/* ==================== PAYMENTS SCHEMA ==================== */
+
+model PaymentRequest {
+  id           String    @id @default(uuid()) @db.Uuid
+  merchantId   String    @db.Uuid
+  linkId       String    @unique @db.VarChar(20)
+  amountFiat   Decimal   @db.Decimal(18, 6)
+  currencyFiat String    @db.VarChar(3)
+  description  String?   @db.Text
+  status       String    @default("PENDING") @db.VarChar(20)
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  merchant       Merchant        @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  paymentIntents PaymentIntent[]
+
+  @@schema("payments")
+  @@map("payment_requests")
+}
+
+model PaymentIntent {
+  id                 String    @id @default(uuid()) @db.Uuid
+  paymentRequestId   String    @db.Uuid
+  merchantId         String    @db.Uuid
+  pluginId           String    @db.VarChar(50)
+  amountCrypto       Decimal   @db.Decimal(38, 18)
+  amountFiat         Decimal   @db.Decimal(18, 6)
+  selectedCoin       String    @db.VarChar(20)
+  selectedChain      String    @db.VarChar(20)
+  targetAddress      String?   @db.VarChar(255)
+  targetMemo         String?   @db.VarChar(255)
+  requiredConfs      Int?
+  pluginIntentId     String?   @db.VarChar(255)
+  status             String    @default("PENDING") @db.VarChar(20)
+  amountReceived     Decimal?  @db.Decimal(38, 18)
+  txId               String?   @db.VarChar(255)
+  blockRef           Json?
+  evidenceReceivedAt DateTime?
+  settledAt          DateTime?
+  expiresAt          DateTime
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  paymentRequest PaymentRequest @relation(fields: [paymentRequestId], references: [id], onDelete: Restrict)
+  merchant       Merchant       @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([status, expiresAt])
+  @@index([pluginId, status])
+  @@index([txId])
+  @@schema("payments")
+  @@map("payment_intents")
+}
+
+/* ==================== EVENTS & AUDIT SCHEMAS ==================== */
+
+model Outbox {
+  id            String    @id @default(uuid()) @db.Uuid
+  eventType     String    @db.VarChar(60)
+  aggregateId   String    @db.VarChar(64)
+  payload       Json
+  retryCount    Int       @default(0)
+  lastAttemptAt DateTime?
+  lastError     String?   @db.Text
+  createdAt     DateTime  @default(now())
+  dispatchedAt  DateTime?
+
+  @@index([dispatchedAt, createdAt])
+  @@schema("events")
+  @@map("outbox")
+}
+
+model Webhook {
+  id         String   @id @default(uuid()) @db.Uuid
+  merchantId String   @db.Uuid
+  url        String   @db.VarChar(500)
+  events     String[]
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  merchant          Merchant           @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  webhookDeliveries WebhookDelivery[]
+
+  @@schema("events")
+  @@map("webhooks")
+}
+
+model WebhookDelivery {
+  id           String    @id @default(uuid()) @db.Uuid
+  webhookId    String    @db.Uuid
+  outboxId     String    @db.Uuid
+  attempt      Int
+  statusCode   Int?
+  responseBody String?   @db.Text
+  error        String?   @db.Text
+  createdAt    DateTime  @default(now())
+  
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  
+  @@index([webhookId, createdAt])
+  @@schema("events")
+  @@map("webhook_deliveries")
+}
+
+model AuditLog {
+  id         String    @id @default(uuid()) @db.Uuid
+  merchantId String?   @db.Uuid
+  action     String    @db.VarChar(100)
+  resourceId String?   @db.VarChar(64)
+  payload    Json?
+  timestamp  DateTime  @default(now())
+
+  merchant Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+
+  @@index([merchantId, timestamp])
+  @@schema("audit")
+  @@map("audit_logs")
+}
+
+/* ==================== OPS SCHEMA ==================== */
+
+model AdvisoryLock {
+  lockId Int @id @unique
+  
+  @@schema("ops")
+  @@map("advisory_locks")
+}
