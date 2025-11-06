@@ -41,7 +41,7 @@ SUZAA follows true microservices principles while maintaining deployment simplic
 
 ### Production Deployment (Single VPS)
 ```
-VPS: 116.203.195.248
+VPS: localhost
 ├── suzaa-core (Port 3000)
 │   ├── Process: pm2 start suzaa-core
 │   ├── Database: suzaa_core_db
