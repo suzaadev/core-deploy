@@ -4,6 +4,9 @@ import helmet from 'helmet';
 import { config } from './config';
 import { connectDatabase, disconnectDatabase } from './infrastructure/database/client';
 import { connectRedis, disconnectRedis } from './infrastructure/cache/redis';
+import authRoutes from './api/routes/auth';
+import adminRoutes from './api/routes/admin';
+import merchantRoutes from './api/routes/merchants';
 
 const app = express();
 
@@ -18,7 +21,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'suzaa-core' });
 });
 
-// Routes (will add later)
+// Root endpoint
 app.get('/', (req, res) => {
   res.json({ 
     service: 'SUZAA Core Payment Gateway',
@@ -26,6 +29,11 @@ app.get('/', (req, res) => {
     status: 'running' 
   });
 });
+
+// Routes
+app.use('/auth', authRoutes);
+app.use('/admin', adminRoutes);
+app.use('/merchants', merchantRoutes);
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -51,6 +59,21 @@ async function start() {
   app.listen(config.port, () => {
     console.log(`🚀 SUZAA Core running on port ${config.port}`);
     console.log(`   Environment: ${config.nodeEnv}`);
+    console.log(`\n   🔐 Merchant Auth:`);
+    console.log(`   - POST /auth/register`);
+    console.log(`   - POST /auth/login`);
+    console.log(`   - POST /auth/verify`);
+    console.log(`   - GET /auth/me (protected)`);
+    console.log(`\n   👑 Super Admin:`);
+    console.log(`   - POST /admin/register (one-time only)`);
+    console.log(`   - POST /admin/login`);
+    console.log(`   - POST /admin/verify`);
+    console.log(`\n   📊 Merchant Management (admin only):`);
+    console.log(`   - GET /merchants`);
+    console.log(`   - GET /merchants/:id`);
+    console.log(`   - POST /merchants/:id/suspend`);
+    console.log(`   - POST /merchants/:id/unsuspend`);
+    console.log(`   - DELETE /merchants/:id`);
   });
 }
 
