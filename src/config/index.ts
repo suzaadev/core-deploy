@@ -4,6 +4,7 @@ dotenv.config();
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
+  baseUrl: process.env.BASE_URL || 'http://localhost:3000',
   
   database: {
     url: process.env.DATABASE_URL!,
@@ -20,6 +21,6 @@ export const config = {
   },
   
   cache: {
-    pluginWalletsTTL: 60, // seconds
+    pluginWalletsTTL: 60,
   },
 };

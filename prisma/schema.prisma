@@ -9,19 +9,13 @@ datasource db {
   schemas  = ["core", "payments", "events", "audit", "ops"]
 }
 
-/* ==================== CORE SCHEMA ==================== */
-
 model SuperAdmin {
   id           String    @id @default(uuid()) @db.Uuid
   email        String    @unique @db.VarChar(255)
   name         String    @db.VarChar(100)
-  
-  // PIN-based auth (same as merchants)
   currentPin   String?   @db.VarChar(6)
   pinExpiresAt DateTime?
   pinAttempts  Int       @default(0)
-  
-  // Status
   emailVerified Boolean   @default(false)
   suspendedAt   DateTime?
   lastLoginAt   DateTime?
@@ -38,19 +32,15 @@ model Merchant {
   email                    String    @unique @db.VarChar(255)
   businessName             String    @db.VarChar(100)
   defaultCurrency          String    @default("USD") @db.VarChar(3)
+  timezone                 String    @default("UTC") @db.VarChar(50)
+  maxBuyerOrdersPerHour    Int       @default(1)
   settleTolerancePct       Decimal   @default(2.0) @db.Decimal(5, 2)
   allowUnsolicitedPayments Boolean   @default(true)
-  
-  // Authentication (no password, PIN-based)
   currentPin               String?   @db.VarChar(6)
   pinExpiresAt             DateTime?
   pinAttempts              Int       @default(0)
-  
-  // Security
   apiKeyHash               String?   @unique @db.VarChar(64)
   webhookSecret            String    @default(uuid()) @db.VarChar(64)
-  
-  // Status
   emailVerified            Boolean   @default(false)
   suspendedAt              DateTime?
   suspendedBy              String?   @db.Uuid
@@ -86,23 +76,31 @@ model PluginRegistry {
   @@map("plugin_registry")
 }
 
-/* ==================== PAYMENTS SCHEMA ==================== */
-
 model PaymentRequest {
   id           String    @id @default(uuid()) @db.Uuid
   merchantId   String    @db.Uuid
-  linkId       String    @unique @db.VarChar(20)
+  orderDate    String    @db.VarChar(8)
+  orderNumber  Int
+  linkId       String    @unique @db.VarChar(30)
   amountFiat   Decimal   @db.Decimal(18, 6)
   currencyFiat String    @db.VarChar(3)
   description  String?   @db.Text
+  expiryMinutes Int      @default(60)
+  expiresAt     DateTime
+  createdBy     String   @db.VarChar(10)
+  createdByIp   String?  @db.VarChar(45)
+  buyerNote     String?  @db.Text
   status       String    @default("PENDING") @db.VarChar(20)
-  expiresAt    DateTime
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   merchant       Merchant        @relation(fields: [merchantId], references: [id], onDelete: Restrict)
   paymentIntents PaymentIntent[]
 
+  @@unique([merchantId, orderDate, orderNumber])
+  @@index([linkId])
+  @@index([merchantId, orderDate])
+  @@index([status, expiresAt])
   @@schema("payments")
   @@map("payment_requests")
 }
@@ -139,8 +137,6 @@ model PaymentIntent {
   @@schema("payments")
   @@map("payment_intents")
 }
-
-/* ==================== EVENTS & AUDIT SCHEMAS ==================== */
 
 model Outbox {
   id            String    @id @default(uuid()) @db.Uuid
@@ -205,8 +201,6 @@ model AuditLog {
   @@schema("audit")
   @@map("audit_logs")
 }
-
-/* ==================== OPS SCHEMA ==================== */
 
 model AdvisoryLock {
   lockId Int @id @unique
