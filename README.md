@@ -2,6 +2,8 @@
 
 **Open-source cryptocurrency payment gateway with a modular plugin architecture.**
 
+> **Current Status:** Phase 1 Complete - Core business logic and authentication system fully implemented. Building customer UX and CASH payment flow before plugin integration.
+
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/typescript-5.x-blue.svg)](https://www.typescriptlang.org)
@@ -13,123 +15,478 @@
 ## 📋 Table of Contents
 
 - [Overview](#overview)
+- [Project Structure](#project-structure)
 - [Architecture](#architecture)
-- [Features](#features)
+- [Current Features](#current-features)
+- [Payment Flows](#payment-flows)
+- [Business Logic](#business-logic)
 - [Quick Start](#quick-start)
-- [Documentation](#documentation)
 - [API Reference](#api-reference)
-- [Tech Stack](#tech-stack)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
-- [License](#license)
-- [Support](#support)
 
 ---
 
 ## 🎯 Overview
 
-SUZAA Core is a **production-ready, open-source payment gateway** designed for cryptocurrency payments. Built with a strict separation between business logic (core) and blockchain implementations (plugins), SUZAA Core is:
+SUZAA Core is a **production-ready, open-source payment gateway** designed for cryptocurrency payments with a unique twist: it works standalone with CASH payments before any blockchain plugins are added.
 
-- ✅ **Framework-agnostic** - Core handles business logic, plugins handle blockchains
-- ✅ **Production-ready** - Full audit logging, rate limiting, timezone support
-- ✅ **Secure by design** - Passwordless authentication, JWT tokens, HMAC verification
-- ✅ **Developer-friendly** - RESTful APIs, comprehensive docs, TypeScript
-- ✅ **Scalable** - PostgreSQL, Redis, microservice-ready architecture
+### Core Philosophy
 
-### Why SUZAA?
+**Separation of Concerns:**
+- **SUZAA Core** (this repository) = Business logic, UX, merchant management
+- **Blockchain Plugins** (separate microservices) = Chain expertise, transaction monitoring
+- **Cash Fallback** = Always works, even without plugins
 
-Traditional payment gateways are **monolithic and closed-source**. SUZAA Core provides:
+### Why This Matters
 
-1. **Transparency** - Open-source core you can audit and trust
-2. **Flexibility** - Bring your own blockchain via plugins
-3. **Control** - Self-hosted, no vendor lock-in
-4. **Innovation** - Community-driven improvements
+Traditional payment gateways are monolithic and closed-source. SUZAA Core provides:
+
+1. **Immediate Functionality** - Works with CASH before plugins (launch faster)
+2. **True Modularity** - Plugins are separate services, not code modules
+3. **Open Source Core** - Auditable, trustworthy business logic
+4. **Proprietary Plugins** - Blockchain expertise is the revenue model
+5. **Platform Thinking** - Anyone can write plugins, SDK provided
+
+---
+
+## 📁 Project Structure
+```
+suzaa-core/
+├── prisma/
+│   └── schema.prisma              # Database schema (11 tables, 5 schemas)
+│
+├── src/
+│   ├── api/                       # HTTP API Layer
+│   │   ├── middleware/
+│   │   │   ├── auth.ts            # Merchant JWT authentication
+│   │   │   └── adminAuth.ts       # Super admin authentication
+│   │   └── routes/
+│   │       ├── auth.ts            # Merchant auth endpoints
+│   │       ├── admin.ts           # Super admin endpoints
+│   │       ├── merchants.ts       # Merchant management (admin)
+│   │       └── payments.ts        # Payment request endpoints
+│   │
+│   ├── application/               # Use Cases (Business Logic)
+│   │   ├── auth/
+│   │   │   ├── RegisterMerchant.ts
+│   │   │   ├── LoginMerchant.ts
+│   │   │   └── VerifyPin.ts
+│   │   ├── admin/
+│   │   │   ├── RegisterSuperAdmin.ts
+│   │   │   ├── LoginSuperAdmin.ts
+│   │   │   └── VerifySuperAdminPin.ts
+│   │   └── payments/
+│   │       └── CreatePaymentRequest.ts
+│   │
+│   ├── domain/                    # Domain Models & Utilities
+│   │   └── utils/
+│   │       ├── auth.ts            # Slug generation, PIN generation
+│   │       ├── orderNumber.ts     # Sequential order numbering
+│   │       └── buyerRateLimit.ts  # Redis-based rate limiting
+│   │
+│   ├── infrastructure/            # External Integrations
+│   │   ├── database/
+│   │   │   └── client.ts          # Prisma client
+│   │   └── cache/
+│   │       └── redis.ts           # Redis client
+│   │
+│   ├── config/
+│   │   └── index.ts               # Environment configuration
+│   │
+│   └── server.ts                  # Express app entry point
+│
+├── docs/
+│   ├── SETUP.md                   # Installation guide
+│   ├── AUTHENTICATION.md          # Auth system documentation
+│   └── PAYMENT_REQUESTS.md        # Payment request documentation
+│
+├── .env                           # Environment variables
+├── package.json                   # Dependencies
+└── tsconfig.json                  # TypeScript configuration
+```
+
+### Database Architecture
+```
+┌─────────────────────────────────────────────────────────┐
+│                    PostgreSQL Database                  │
+├─────────────────────────────────────────────────────────┤
+│  Schema: core                                           │
+│    ├── merchants              (Merchant accounts)       │
+│    ├── super_admins           (Platform admins)         │
+│    └── plugin_registry         (Plugin connections)     │
+├─────────────────────────────────────────────────────────┤
+│  Schema: payments                                       │
+│    ├── payment_requests        (Orders/invoices)        │
+│    └── payment_intents         (Specific payment methods)│
+├─────────────────────────────────────────────────────────┤
+│  Schema: events                                         │
+│    ├── outbox                  (Event dispatch queue)   │
+│    ├── webhooks                (Merchant webhooks)      │
+│    └── webhook_deliveries      (Delivery tracking)      │
+├─────────────────────────────────────────────────────────┤
+│  Schema: audit                                          │
+│    └── audit_logs              (Complete audit trail)   │
+├─────────────────────────────────────────────────────────┤
+│  Schema: ops                                            │
+│    └── advisory_locks          (Distributed locking)    │
+└─────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## 🏗️ Architecture
 
-### Core + Plugin Model
-
-SUZAA follows a strict **separation of concerns**:
+### Current Architecture (Phase 1)
 ```
-┌─────────────────────────────────────────────────┐
-│                 SUZAA CORE                      │
-│        (Open Source - Business Logic)           │
-├─────────────────────────────────────────────────┤
-│  • Merchant Management                          │
-│  • Payment Requests                             │
-│  • Order Number Generation                      │
-│  • Authentication & Authorization               │
-│  • Audit Logging                                │
-│  • Webhook Dispatch                             │
-│  • Admin Dashboard                              │
-└──────────────┬──────────────────────────────────┘
-               │ HTTP API Contract
-               │ (Stateless, Versioned, Signed)
-               ↓
-┌─────────────────────────────────────────────────┐
-│              BLOCKCHAIN PLUGINS                 │
-│         (Proprietary - Chain Experts)           │
-├─────────────────────────────────────────────────┤
-│  • suzaa-solana-plugin                          │
-│  • suzaa-ethereum-plugin                        │
-│  • suzaa-bitcoin-plugin                         │
-│  • Your Custom Plugin                           │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                    SUZAA CORE                            │
+│              (Standalone - No Plugins)                   │
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐ │
+│  │   Merchant  │  │   Customer   │  │  Super Admin   │ │
+│  │     Auth    │  │   Payment    │  │   Dashboard    │ │
+│  │  (PIN-based)│  │     Pages    │  │   (Manage)     │ │
+│  └──────┬──────┘  └──────┬───────┘  └────────┬───────┘ │
+│         │                │                   │         │
+│         └────────────────┼───────────────────┘         │
+│                          │                             │
+│  ┌──────────────────────▼──────────────────────────┐   │
+│  │          Payment Request Creation               │   │
+│  │  • Sequential order numbers (jumasm/20251106/0001)│  │
+│  │  • Timezone-aware daily reset                   │   │
+│  │  • Configurable expiry (15-120 min)            │   │
+│  │  • Rate limiting (buyer protection)             │   │
+│  └──────────────────────┬──────────────────────────┘   │
+│                          │                             │
+│  ┌──────────────────────▼──────────────────────────┐   │
+│  │        Payment Method Selection                 │   │
+│  │                                                  │   │
+│  │  ┌──────────┐  ┌─────────────────────────────┐ │   │
+│  │  │   CASH   │  │  Crypto (Future - Plugins)  │ │   │
+│  │  │          │  │  • USDC (Solana plugin)     │ │   │
+│  │  │ Manual   │  │  • SOL (Solana plugin)      │ │   │
+│  │  │ confirm  │  │  • BTC (Bitcoin plugin)     │ │   │
+│  │  └────┬─────┘  └─────────────────────────────┘ │   │
+│  └───────┼────────────────────────────────────────┘   │
+│          │                                             │
+│  ┌───────▼────────────────────────────────────────┐   │
+│  │          Settlement Decision Logic              │   │
+│  │  • Amount matching (with tolerance)             │   │
+│  │  • Status transitions                           │   │
+│  │  • Webhook dispatch                             │   │
+│  │  • Audit logging                                │   │
+│  └─────────────────────────────────────────────────┘   │
+│                                                          │
+├──────────────────────────────────────────────────────────┤
+│                   Data Layer                             │
+│  ┌──────────────┐        ┌─────────────────┐            │
+│  │ PostgreSQL 17│        │   Redis 7.x     │            │
+│  │ (5 schemas)  │        │ (Rate limiting) │            │
+│  └──────────────┘        └─────────────────┘            │
+└──────────────────────────────────────────────────────────┘
 ```
 
-### Key Principles
+### Future Architecture (Phase 2 - With Plugins)
+```
+┌──────────────────────────────────────────────────────────┐
+│                    SUZAA CORE                            │
+│              (Open Source - MIT License)                 │
+└────────────────────┬─────────────────────────────────────┘
+                     │
+         ┌───────────┼───────────┐
+         │ HTTP API  │  HTTP API │
+         │ Contract  │  Contract │
+         ▼           ▼           ▼
+┌────────────┐  ┌────────────┐  ┌────────────┐
+│  Solana    │  │  Bitcoin   │  │  Ethereum  │
+│  Plugin    │  │  Plugin    │  │  Plugin    │
+│ (VPS #1)   │  │ (VPS #2)   │  │ (VPS #3)   │
+├────────────┤  ├────────────┤  ├────────────┤
+│ Separate   │  │ Separate   │  │ Separate   │
+│ Database   │  │ Database   │  │ Database   │
+└────────────┘  └────────────┘  └────────────┘
+ Proprietary     Proprietary     Proprietary
 
-1. **Core knows business, not blockchains** - SUZAA Core manages merchants, orders, and business rules. It never touches blockchain code.
-
-2. **Plugins know blockchains, not business** - Plugins monitor chains, match transactions, and report evidence to Core.
-
-3. **HTTP-only communication** - All interaction via stateless, versioned HTTP APIs with HMAC signatures.
-
-4. **No direct database access** - Core and plugins maintain separate databases. No shared state.
-
-5. **Evidence-based settlement** - Plugins report facts ("I saw transaction X"), Core makes decisions ("This settles order Y").
+Key Principles:
+- Plugins are microservices (separate VPS, separate DB)
+- HTTP-only communication (no shared code/database)
+- HMAC-signed requests (security)
+- Core makes business decisions, plugins report facts
+```
 
 ---
 
-## ✨ Features
+## ✨ Current Features
 
-### Authentication & Authorization
+### ✅ Implemented (Phase 1)
 
-- **Passwordless authentication** - PIN-based verification via email (10-minute expiry)
-- **Auto-generated merchant slugs** - 6-letter unique identifiers (e.g., `jumasm`)
-- **JWT tokens** - 7-day expiry, stateless authentication
-- **Super admin system** - One-time registration, email locked, full merchant management
-- **Role-based access control** - Merchant vs admin permissions
+#### Authentication System
+- **Passwordless authentication** - PIN-based verification (10-minute expiry)
+- **Auto-generated merchant slugs** - 6 letters, unique (e.g., `jumasm`)
+- **JWT tokens** - 7-day expiry, stateless
+- **Super admin** - One-time registration, email locked
+- **Role-based access** - Merchant vs admin permissions
+- **Max 5 PIN attempts** - Security lockout
 
-### Payment Management
-
-- **Sequential order numbers** - Auto-incrementing per merchant per day (`jumasm/20251106/0001`)
-- **Timezone-aware** - Daily reset at merchant's local midnight, not UTC
+#### Payment Requests
+- **Sequential order numbers** - `jumasm/20251106/0001` format
+- **Daily auto-reset** - At midnight in merchant's timezone
 - **Configurable expiry** - 15, 30, 60, or 120 minutes
 - **Two creation methods**:
-  - Merchant-created (API/dashboard)
-  - Buyer-initiated (public payment portal)
-- **Rate limiting** - Prevents buyer abuse (1 order/hour default, configurable)
-- **Auto-expiry** - Status updates when time runs out
+  - Merchant-created (authenticated API)
+  - Buyer-initiated (public page, rate-limited)
+- **Timezone-aware** - Date based on merchant's local time
+- **Rate limiting** - 1 order/hour for buyers (configurable)
 
-### Security
+#### Merchant Management
+- **List all merchants** (admin)
+- **Suspend/unsuspend** (admin with reason tracking)
+- **Delete merchant** (admin with confirmation)
+- **Merchant settings** (timezone, currency, limits)
 
-- **Bcrypt password hashing** - Industry-standard encryption
-- **HMAC signature verification** - Secure plugin communication
-- **API key authentication** - For external integrations
-- **Webhook secret signing** - Verify merchant webhooks
+#### Infrastructure
+- **PostgreSQL 17** - 5 schemas, 11 tables, production-ready
+- **Redis** - Caching and rate limiting
 - **Audit logging** - Complete trail of all actions
-- **Account suspension** - Admin can suspend/unsuspend merchants
+- **Health checks** - `/health` endpoint
+- **Graceful shutdown** - Clean connection cleanup
 
-### Infrastructure
+### 🚧 In Progress (Phase 1.5)
 
-- **PostgreSQL 17** - 5 schemas (core, payments, events, audit, ops), 11 tables
-- **Redis caching** - Plugin response caching, rate limiting
-- **Outbox pattern** - Guaranteed webhook delivery
-- **Graceful shutdown** - Proper connection cleanup
-- **Health checks** - `/health` endpoint for monitoring
+#### Customer Payment UX
+- [ ] Payment lookup page (enter order number)
+- [ ] Payment details page (amount, merchant, timer)
+- [ ] CASH payment instructions
+- [ ] "I Have Paid" button (customer claim)
+- [ ] Payment status polling
+
+#### Merchant Dashboard
+- [ ] Order list with filters
+- [ ] Order details view
+- [ ] Mark as paid action
+- [ ] Settings page
+- [ ] Export to CSV
+
+#### Settlement Logic
+- [ ] Amount tolerance checking
+- [ ] Status transitions (PENDING → SETTLED)
+- [ ] Webhook dispatch to merchants
+- [ ] Receipt generation
+
+### 📋 Planned (Phase 2 - Plugins)
+
+#### Plugin Integration
+- [ ] Plugin HTTP client
+- [ ] Plugin evidence endpoint
+- [ ] HMAC signature verification
+- [ ] Plugin SDK (`@suzaa/plugin-sdk`)
+- [ ] Reference plugin (mock)
+- [ ] Solana plugin (proprietary)
+
+---
+
+## 💰 Payment Flows
+
+### Current Flow: CASH Payments
+```
+┌─────────────────────────────────────────────────────────┐
+│                 CASH Payment Flow                        │
+│              (No Plugins Required)                       │
+└─────────────────────────────────────────────────────────┘
+
+1. MERCHANT CREATES ORDER
+   ┌───────────────────────────────────────────┐
+   │ POST /payments/requests                   │
+   │ { amount: 100.50, description: "..." }    │
+   │                                           │
+   │ → Creates: jumasm/20251106/0001          │
+   │ → Status: PENDING                         │
+   │ → Expires: 60 minutes                     │
+   └───────────────────────────────────────────┘
+
+2. CUSTOMER VISITS LINK
+   ┌───────────────────────────────────────────┐
+   │ GET /payments/jumasm/20251106/0001        │
+   │                                           │
+   │ Shows:                                    │
+   │ • Merchant: "Test Business"               │
+   │ • Amount: $100.50 USD                     │
+   │ • Expires: "14:32 remaining"              │
+   │ • Payment methods: [CASH]                 │
+   └───────────────────────────────────────────┘
+
+3. CUSTOMER SELECTS CASH
+   ┌───────────────────────────────────────────┐
+   │ POST /payments/:id/select-method          │
+   │ { method: "CASH" }                        │
+   │                                           │
+   │ Shows instructions:                       │
+   │ "Pay via bank transfer, cash, or check"  │
+   │                                           │
+   │ [I Have Paid] button                      │
+   └───────────────────────────────────────────┘
+
+4. CUSTOMER CLAIMS PAID
+   ┌───────────────────────────────────────────┐
+   │ POST /payments/:id/mark-paid              │
+   │                                           │
+   │ → Creates PaymentIntent                   │
+   │ → Status: PENDING_CONFIRMATION            │
+   │ → Notifies merchant                       │
+   └───────────────────────────────────────────┘
+
+5. MERCHANT CONFIRMS
+   ┌───────────────────────────────────────────┐
+   │ Merchant Dashboard                        │
+   │ → Views order jumasm/20251106/0001        │
+   │ → Sees: "Customer claims paid"            │
+   │ → Clicks: [Confirm Payment]               │
+   │                                           │
+   │ POST /payments/:id/confirm (auth)         │
+   │ → Status: SETTLED                         │
+   │ → settledAt: timestamp                    │
+   │ → Webhook dispatched                      │
+   │ → Audit log created                       │
+   └───────────────────────────────────────────┘
+```
+
+### Future Flow: Crypto Payments (With Plugins)
+```
+┌─────────────────────────────────────────────────────────┐
+│              Crypto Payment Flow                         │
+│          (Requires Blockchain Plugin)                    │
+└─────────────────────────────────────────────────────────┘
+
+1. MERCHANT CREATES ORDER
+   (Same as CASH flow)
+
+2. CUSTOMER VISITS LINK
+   Shows payment methods: [USDC] [SOL] [BTC] [CASH]
+
+3. CUSTOMER SELECTS CRYPTO (e.g., USDC)
+   ┌───────────────────────────────────────────┐
+   │ Core → Plugin:                            │
+   │ POST /v1/intents/:id/allocate             │
+   │ { coin: "USDC_SOL", amount: "100.50" }   │
+   │                                           │
+   │ Plugin → Core:                            │
+   │ { address: "Ffo...M2", memo: "12345" }   │
+   │                                           │
+   │ Shows to customer:                        │
+   │ • QR code                                 │
+   │ • Address + memo                          │
+   │ • Amount in crypto (with conversion)     │
+   └───────────────────────────────────────────┘
+
+4. PLUGIN DETECTS PAYMENT
+   ┌───────────────────────────────────────────┐
+   │ Plugin monitors blockchain                │
+   │ → Finds matching transaction              │
+   │                                           │
+   │ Plugin → Core:                            │
+   │ POST /internal/decisions/settlement       │
+   │ { txId: "...", amountReceived: "100.48" }│
+   │                                           │
+   │ Core decides:                             │
+   │ → 100.48 vs 100.50 = 0.02 difference     │
+   │ → Within 2% tolerance → SETTLED          │
+   └───────────────────────────────────────────┘
+
+5. AUTOMATIC SETTLEMENT
+   → Status: SETTLED (no merchant action needed)
+   → Webhook dispatched
+   → Customer sees success
+```
+
+---
+
+## 🧠 Business Logic
+
+### Settlement Decision Algorithm
+
+This is the core business logic that works for BOTH cash and crypto:
+```typescript
+interface SettlementContext {
+  paymentRequest: {
+    amountFiat: number;        // Expected amount
+    currencyFiat: string;      // USD, EUR, etc.
+  };
+  merchant: {
+    settleTolerancePct: number; // Default: 2%
+  };
+  evidence: {
+    amountReceived: number;     // Actual amount
+    method: 'CASH' | 'CRYPTO';
+    source: string;             // "merchant_confirm" or "plugin_evidence"
+  };
+}
+
+function decideSettlement(ctx: SettlementContext): SettlementDecision {
+  const expected = ctx.paymentRequest.amountFiat;
+  const received = ctx.evidence.amountReceived;
+  const tolerance = expected * (ctx.merchant.settleTolerancePct / 100);
+  
+  const difference = Math.abs(received - expected);
+  
+  // Within tolerance → SETTLED
+  if (difference <= tolerance) {
+    return {
+      status: 'SETTLED',
+      reason: `Amount within ${ctx.merchant.settleTolerancePct}% tolerance`,
+      amountExpected: expected,
+      amountReceived: received,
+      difference: difference
+    };
+  }
+  
+  // Under tolerance → UNDERPAID
+  if (received < expected) {
+    return {
+      status: 'UNDERPAID',
+      reason: `Received ${received}, expected ${expected}`,
+      amountExpected: expected,
+      amountReceived: received,
+      difference: difference
+    };
+  }
+  
+  // Over tolerance → OVERPAID (rare, but handle it)
+  return {
+    status: 'OVERPAID',
+    reason: `Received ${received}, expected ${expected}`,
+    amountExpected: expected,
+    amountReceived: received,
+    difference: difference
+  };
+}
+```
+
+### Status Lifecycle
+```
+┌──────────────────────────────────────────────────────┐
+│            Payment Request Status Flow                │
+└──────────────────────────────────────────────────────┘
+
+PENDING
+  │
+  ├─→ (time expires) → EXPIRED
+  │
+  ├─→ (customer selects CASH) → PENDING_CONFIRMATION
+  │       │
+  │       ├─→ (merchant confirms) → SETTLED ✓
+  │       └─→ (merchant rejects) → REJECTED
+  │
+  └─→ (customer selects CRYPTO) → MONITORING
+          │
+          ├─→ (full amount detected) → SETTLED ✓
+          ├─→ (partial amount) → UNDERPAID
+          └─→ (overpayment) → OVERPAID
+
+Legend:
+✓ = Happy path (payment successful)
+```
 
 ---
 
@@ -153,19 +510,19 @@ pnpm install
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your database credentials
+# Edit .env with your settings
 
-# Initialize database
-pnpm db:push
+# Setup database
+DATABASE_URL="your-connection-string" pnpm db:push
 
-# Start development server
+# Start development
 pnpm dev
 ```
 
 ### Environment Variables
 ```bash
 # Database
-DATABASE_URL="postgresql://user:pass@localhost:5432/suzaa_core_db?schema=core"
+DATABASE_URL="postgresql://suzaa_core:password@localhost:5432/suzaa_core_db?schema=core"
 
 # Redis
 REDIS_URL="redis://localhost:6379"
@@ -175,104 +532,64 @@ PORT=3000
 NODE_ENV=production
 BASE_URL="http://your-domain.com"
 
-# Security (use openssl rand -hex 32)
-JWT_SECRET="your-jwt-secret"
-API_KEY_SALT="your-api-key-salt"
-PLUGIN_HMAC_SECRET="your-plugin-hmac-secret"
+# Security (generate with: openssl rand -hex 32)
+JWT_SECRET="your-jwt-secret-here"
+API_KEY_SALT="your-api-key-salt-here"
+PLUGIN_HMAC_SECRET="your-plugin-hmac-secret-here"
 ```
 
 ### First Steps
-
-1. **Register super admin** (one-time only):
 ```bash
+# 1. Register super admin
 curl -X POST http://localhost:3000/admin/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@yourcompany.com","name":"Admin"}'
-```
+  -d '{"email":"admin@company.com","name":"Admin"}'
 
-2. **Verify PIN** (check console for PIN):
-```bash
+# 2. Check console for PIN, then verify
 curl -X POST http://localhost:3000/admin/verify \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@yourcompany.com","pin":"123456"}'
-```
+  -d '{"email":"admin@company.com","pin":"123456"}'
 
-3. **Register a merchant**:
-```bash
+# 3. Register merchant
 curl -X POST http://localhost:3000/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"merchant@example.com","businessName":"Test Business"}'
-```
+  -d '{"email":"merchant@example.com","businessName":"My Shop"}'
 
-4. **Create payment request**:
-```bash
+# 4. Create payment request
 curl -X POST http://localhost:3000/payments/requests \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"amount":100.50,"description":"Invoice #123"}'
+  -d '{"amount":100.50,"description":"Order #123"}'
+
+# Response: http://your-domain.com/jumasm/20251106/0001
 ```
-
----
-
-## 📚 Documentation
-
-Comprehensive guides for every aspect of SUZAA Core:
-
-- **[Setup Guide](SETUP.md)** - Complete installation and configuration
-- **[Authentication Guide](AUTHENTICATION.md)** - Passwordless auth system
-- **[Payment Requests](PAYMENT_REQUESTS.md)** - Order creation and management
-- **[API Reference](#api-reference)** - Complete endpoint documentation (below)
 
 ---
 
 ## 🔌 API Reference
 
-### Authentication
+### Quick Reference
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/auth/register` | Public | Register new merchant |
-| POST | `/auth/login` | Public | Request login PIN |
-| POST | `/auth/verify` | Public | Verify PIN, get JWT |
-| GET | `/auth/me` | JWT | Get current merchant info |
-
-### Super Admin
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/admin/register` | Public | Register super admin (once) |
-| POST | `/admin/login` | Public | Request admin PIN |
-| POST | `/admin/verify` | Public | Verify admin PIN |
-
-### Merchant Management (Admin Only)
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/merchants` | Admin JWT | List all merchants |
-| GET | `/merchants/:id` | Admin JWT | Get merchant details |
-| POST | `/merchants/:id/suspend` | Admin JWT | Suspend merchant |
-| POST | `/merchants/:id/unsuspend` | Admin JWT | Unsuspend merchant |
-| DELETE | `/merchants/:id` | Admin JWT | Delete merchant |
-
-### Payment Requests
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/payments/requests` | Merchant JWT | Create payment request |
-| GET | `/payments/requests` | Merchant JWT | List merchant's requests |
-| GET | `/payments/:slug/:date/:order` | Public | View payment request |
-
-### Health & Status
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/health` | Public | Health check |
-| GET | `/` | Public | Service info |
+| Category | Endpoint | Method | Auth | Description |
+|----------|----------|--------|------|-------------|
+| **Merchant Auth** | `/auth/register` | POST | Public | Register merchant |
+| | `/auth/login` | POST | Public | Request PIN |
+| | `/auth/verify` | POST | Public | Verify PIN, get JWT |
+| | `/auth/me` | GET | JWT | Get merchant info |
+| **Admin** | `/admin/register` | POST | Public | Register admin (once) |
+| | `/admin/login` | POST | Public | Request admin PIN |
+| | `/admin/verify` | POST | Public | Verify admin PIN |
+| **Payments** | `/payments/requests` | POST | Merchant | Create payment request |
+| | `/payments/requests` | GET | Merchant | List merchant's requests |
+| | `/payments/:slug/:date/:order` | GET | Public | View payment details |
+| **Admin Management** | `/merchants` | GET | Admin | List all merchants |
+| | `/merchants/:id/suspend` | POST | Admin | Suspend merchant |
+| | `/merchants/:id/unsuspend` | POST | Admin | Unsuspend merchant |
 
 ### Example: Create Payment Request
 ```bash
 POST /payments/requests
-Authorization: Bearer eyJhbGci...
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 Content-Type: application/json
 
 {
@@ -287,137 +604,116 @@ Content-Type: application/json
 {
   "success": true,
   "data": {
-    "paymentRequestId": "uuid-here",
+    "paymentRequestId": "c417fd66-c9a5-4813-b387-4208f45b8f89",
     "linkId": "jumasm/20251106/0001",
-    "paymentUrl": "http://your-domain.com/jumasm/20251106/0001",
+    "paymentUrl": "http://116.203.195.248/jumasm/20251106/0001",
     "expiresAt": "2025-11-06T16:30:00.000Z"
   }
 }
 ```
 
----
-
-## 🛠️ Tech Stack
-
-### Backend
-- **Node.js 20** - Runtime environment
-- **TypeScript 5** - Type safety and developer experience
-- **Express.js** - HTTP server and routing
-- **Prisma** - Type-safe database ORM
-
-### Database
-- **PostgreSQL 17** - Primary data store
-- **Redis 7** - Caching and rate limiting
-
-### Security
-- **Helmet** - Security headers
-- **CORS** - Cross-origin resource sharing
-- **JWT** - JSON Web Tokens for authentication
-- **bcrypt** - Password hashing
-
-### Infrastructure
-- **pnpm** - Fast, efficient package manager
-- **tsx** - TypeScript execution for development
+For complete API documentation, see:
+- [Authentication Guide](AUTHENTICATION.md)
+- [Payment Requests Guide](PAYMENT_REQUESTS.md)
 
 ---
 
 ## 🗺️ Roadmap
 
-### ✅ Phase 1: Core Foundation (Complete)
-- [x] Authentication system (passwordless)
+### ✅ Phase 1: Core Foundation (COMPLETE)
+- [x] Authentication (passwordless PIN-based)
 - [x] Merchant management
 - [x] Super admin system
 - [x] Payment request creation
 - [x] Sequential order numbers
-- [x] Timezone support
+- [x] Timezone-aware daily reset
 - [x] Rate limiting
 - [x] Audit logging
+- [x] Database schema (production-ready)
 
-### 🚧 Phase 2: Customer Experience (In Progress)
-- [ ] Public payment pages (UI)
-- [ ] Buyer-initiated orders
+### 🚧 Phase 1.5: CASH Payment Flow (IN PROGRESS)
+- [ ] Customer payment lookup page
+- [ ] Payment details display
+- [ ] CASH payment instructions
+- [ ] Customer "I Have Paid" button
+- [ ] Merchant dashboard (order list)
+- [ ] Merchant confirmation action
+- [ ] Settlement decision logic
+- [ ] Webhook dispatch
+- **Goal:** Fully functional payment gateway WITHOUT plugins
+
+### 📋 Phase 2: Plugin Architecture
+- [ ] Plugin HTTP contract (OpenAPI spec)
+- [ ] Plugin SDK (`@suzaa/plugin-sdk`)
+- [ ] Mock plugin (reference implementation)
+- [ ] Plugin HTTP client (Core → Plugin)
+- [ ] Evidence endpoint (Plugin → Core)
+- [ ] HMAC signature verification
+- [ ] Plugin health checks
+- [ ] Settlement decision (crypto-aware)
+
+### 🔌 Phase 2.5: First Plugin (Proprietary)
+- [ ] Solana plugin (separate repository)
+- [ ] Wallet management
+- [ ] Blockchain scanner
+- [ ] Transaction matcher
+- [ ] Confirmation tracking
+- [ ] Reorg handling
+- **Goal:** End-to-end crypto payment (Solana USDC)
+
+### 🌟 Phase 3: Platform Features
+- [ ] Multi-currency conversion API
 - [ ] QR code generation
-- [ ] Payment status polling
-- [ ] Multi-language support
-
-### 📋 Phase 3: Plugin Integration
-- [ ] Plugin API contract finalization
-- [ ] Solana plugin (proprietary)
-- [ ] Webhook delivery system
-- [ ] Payment intent creation
-- [ ] Transaction monitoring
-
-### 🔮 Phase 4: Advanced Features
+- [ ] Payment status webhooks
 - [ ] Recurring payments
 - [ ] Subscription management
-- [ ] Multi-currency conversion
 - [ ] Advanced analytics
 - [ ] Mobile SDK
 
-### 🌟 Phase 5: Enterprise
+### 🏢 Phase 4: Enterprise
 - [ ] White-label customization
-- [ ] Multi-tenant support
+- [ ] Multi-tenant mode
 - [ ] Advanced fraud detection
-- [ ] Compliance tools (KYC/AML)
+- [ ] KYC/AML compliance tools
 - [ ] Enterprise SSO
+- [ ] SLA guarantees
 
 ---
 
 ## 🤝 Contributing
 
-SUZAA Core is open source and welcomes contributions!
+SUZAA Core is open source (MIT License) and welcomes contributions!
+
+### Current Priorities
+
+We need help with:
+- 🎨 **Frontend** - Customer payment pages (React/HTML)
+- 🧪 **Testing** - Unit and integration tests
+- 📖 **Documentation** - Tutorials and guides
+- 🌍 **i18n** - Multi-language support
+- 🔌 **Community Plugins** - Write your own blockchain plugins
 
 ### How to Contribute
 
-1. **Fork the repository**
-2. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
-3. **Commit your changes** (`git commit -m 'Add amazing feature'`)
-4. **Push to branch** (`git push origin feature/amazing-feature`)
-5. **Open a Pull Request**
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/amazing`)
+3. Commit changes (`git commit -m 'feat: add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing`)
+5. Open Pull Request
 
 ### Development Setup
 ```bash
-# Clone your fork
 git clone https://github.com/YOUR_USERNAME/first.git
-
-# Install dependencies
+cd first
 pnpm install
-
-# Create feature branch
-git checkout -b feature/my-feature
-
-# Make changes and test
 pnpm dev
-
-# Run tests (coming soon)
-pnpm test
-
-# Commit with conventional commits
-git commit -m "feat: add amazing feature"
 ```
-
-### Contribution Guidelines
-
-- **Code Style** - Follow existing TypeScript patterns
-- **Commits** - Use [Conventional Commits](https://www.conventionalcommits.org/)
-- **Tests** - Add tests for new features (when test suite is ready)
-- **Documentation** - Update docs for API changes
-- **Security** - Report vulnerabilities privately
-
-### Areas Needing Help
-
-- 🎨 **UI/UX** - Public payment pages design
-- 📱 **Mobile** - React Native SDK
-- 🌍 **i18n** - Multi-language support
-- 🧪 **Testing** - Unit and integration tests
-- 📖 **Documentation** - Tutorials and guides
-- 🔌 **Plugins** - Community blockchain plugins
 
 ---
 
 ## 📄 License
 
-SUZAA Core is licensed under the **MIT License**.
+**SUZAA Core:** MIT License (Open Source)
 ```
 MIT License
 
@@ -425,76 +721,40 @@ Copyright (c) 2025 SUZAA Global
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+in the Software without restriction...
 ```
 
-**Note:** While SUZAA Core is open source (MIT), blockchain plugins are proprietary and licensed separately.
+**Blockchain Plugins:** Proprietary (Licensed Separately)
 
 ---
 
 ## 💬 Support
 
-### Community
-
-- **GitHub Issues** - Bug reports and feature requests
-- **Discussions** - General questions and community chat
-- **Discord** - Real-time community support (coming soon)
-
-### Commercial Support
-
-For enterprise deployments, custom plugins, or priority support:
-- Email: dev@suzaa.com
-- Website: https://suzaa.com (coming soon)
-
-### Security
-
-Found a security vulnerability? Please email security@suzaa.com instead of opening a public issue.
+- **GitHub Issues:** Bug reports and features
+- **Discussions:** Community chat
+- **Email:** dev@suzaa.com
+- **Security:** security@suzaa.com (private)
 
 ---
 
 ## 🌟 Acknowledgments
 
-Built with passion by the SUZAA team and contributors worldwide.
-
-Special thanks to:
-- The TypeScript and Node.js communities
-- Prisma team for an amazing ORM
-- PostgreSQL and Redis maintainers
-- All our contributors and early adopters
-
----
-
-## 📊 Project Stats
-
-- **Language:** TypeScript
-- **Database:** PostgreSQL
-- **Cache:** Redis
-- **Architecture:** Microservices-ready
-- **License:** MIT (core), Proprietary (plugins)
-- **Status:** Production-ready (Phase 1 complete)
+Built with:
+- TypeScript & Node.js
+- Express.js
+- Prisma ORM
+- PostgreSQL & Redis
 
 ---
 
 <div align="center">
 
-**[Website](https://suzaa.com)** • **[Documentation](SETUP.md)** • **[API Docs](PAYMENT_REQUESTS.md)** • **[Contributing](#contributing)**
+**[Documentation](SETUP.md)** • **[API Reference](PAYMENT_REQUESTS.md)** • **[Contributing](#contributing)**
 
 Made with ❤️ by [SUZAA Global](https://github.com/suzaaglobal)
 
-⭐ **Star us on GitHub** — it helps!
+⭐ Star us on GitHub if you find this useful!
+
+**Current Status:** Phase 1 Complete, Building CASH Payment Flow
 
 </div>
