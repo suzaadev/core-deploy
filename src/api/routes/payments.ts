@@ -1,139 +1,142 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { createPaymentRequest } from '../../application/payments/CreatePaymentRequest';
 import { prisma } from '../../infrastructure/database/client';
+import { CoinGeckoPriceService } from '../../infrastructure/pricing/CoinGeckoPriceService';
 
 const router = Router();
 
-/**
- * POST /payments/requests
- * Create payment request (merchant authenticated)
- */
+// Get all payment requests for merchant
+router.get('/requests', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const paymentRequests = await prisma.paymentRequest.findMany({
+      where: { merchantId: req.merchant!.id },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        linkId: true,
+        orderDate: true,
+        orderNumber: true,
+        amountFiat: true,
+        currencyFiat: true,
+        description: true,
+        status: true,
+        createdBy: true,
+        settlementStatus: true,
+        expiresAt: true,
+        createdAt: true,
+      },
+    });
+
+    // Transform status to ACTIVE/EXPIRED
+    const now = new Date();
+    const transformed = paymentRequests.map(pr => ({
+      ...pr,
+      amountFiat: parseFloat(pr.amountFiat.toString()),
+      status: now > pr.expiresAt ? 'EXPIRED' : 'ACTIVE',
+      originalStatus: pr.status,
+    }));
+
+    return res.json({
+      success: true,
+      data: transformed,
+    });
+  } catch (error) {
+    console.error('Get payment requests error:', error);
+    return res.status(500).json({ error: 'Failed to fetch payment requests' });
+  }
+});
+
+// Update settlement status
+router.patch('/requests/:id/settlement', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { settlementStatus } = req.body;
+
+    if (!['PENDING', 'PAID', 'SETTLED', 'REJECTED', 'REISSUED'].includes(settlementStatus)) {
+      return res.status(400).json({ error: 'Invalid settlement status' });
+    }
+
+    const paymentRequest = await prisma.paymentRequest.findUnique({
+      where: { id },
+      select: { merchantId: true },
+    });
+
+    if (!paymentRequest || paymentRequest.merchantId !== req.merchant!.id) {
+      return res.status(404).json({ error: 'Payment request not found' });
+    }
+
+    const updated = await prisma.paymentRequest.update({
+      where: { id },
+      data: { settlementStatus },
+      select: {
+        id: true,
+        settlementStatus: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      data: updated,
+    });
+  } catch (error) {
+    console.error('Update settlement status error:', error);
+    return res.status(500).json({ error: 'Failed to update settlement status' });
+  }
+});
+
+// Create payment request (existing endpoint)
 router.post('/requests', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const { amount, description, expiryMinutes } = req.body;
 
-    if (!amount || typeof amount !== 'number') {
-      return res.status(400).json({ error: 'Amount is required and must be a number' });
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'Valid amount is required' });
     }
 
-    const result = await createPaymentRequest({
-      merchantId: req.merchant!.id,
-      amountFiat: amount,
-      description,
-      expiryMinutes: expiryMinutes || 60,
-      createdBy: 'merchant',
+    const expiry = expiryMinutes || 60;
+    const today = new Date();
+    const dateStr = today.toISOString().split('T')[0].replace(/-/g, '');
+
+    const lastOrder = await prisma.paymentRequest.findFirst({
+      where: {
+        merchantId: req.merchant!.id,
+        orderDate: dateStr,
+      },
+      orderBy: { orderNumber: 'desc' },
     });
 
-    if (!result.success) {
-      return res.status(400).json({ error: result.message });
-    }
+    const nextOrderNumber = lastOrder ? lastOrder.orderNumber + 1 : 1;
+    const linkId = `${req.merchant!.slug}/${dateStr}/${nextOrderNumber.toString().padStart(4, '0')}`;
+    const expiresAt = new Date(Date.now() + expiry * 60 * 1000);
+
+    const paymentRequest = await prisma.paymentRequest.create({
+      data: {
+        merchantId: req.merchant!.id,
+        orderDate: dateStr,
+        orderNumber: nextOrderNumber,
+        linkId,
+        amountFiat: amount,
+        currencyFiat: 'USD',
+        description: description || null,
+        expiryMinutes: expiry,
+        expiresAt,
+        createdBy: 'merchant',
+        status: 'PENDING',
+        settlementStatus: 'PENDING',
+      },
+    });
 
     return res.status(201).json({
       success: true,
       data: {
-        paymentRequestId: result.paymentRequestId,
-        linkId: result.linkId,
-        paymentUrl: result.paymentUrl,
-        expiresAt: result.expiresAt,
+        ...paymentRequest,
+        amountFiat: parseFloat(paymentRequest.amountFiat.toString()),
+        paymentUrl: `http://116.203.195.248:3001/${linkId}`,
       },
     });
   } catch (error) {
     console.error('Create payment request error:', error);
     return res.status(500).json({ error: 'Failed to create payment request' });
-  }
-});
-
-/**
- * GET /payments/requests
- * List merchant's payment requests
- */
-router.get('/requests', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const { status, limit = 50, offset = 0 } = req.query;
-
-    const where: any = {
-      merchantId: req.merchant!.id,
-    };
-
-    if (status) {
-      where.status = status;
-    }
-
-    const requests = await prisma.paymentRequest.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: Number(limit),
-      skip: Number(offset),
-      select: {
-        id: true,
-        linkId: true,
-        amountFiat: true,
-        currencyFiat: true,
-        description: true,
-        status: true,
-        expiresAt: true,
-        createdBy: true,
-        createdAt: true,
-      },
-    });
-
-    const total = await prisma.paymentRequest.count({ where });
-
-    return res.status(200).json({
-      success: true,
-      data: requests,
-      total,
-      limit: Number(limit),
-      offset: Number(offset),
-    });
-  } catch (error) {
-    console.error('List payment requests error:', error);
-    return res.status(500).json({ error: 'Failed to fetch payment requests' });
-  }
-});
-
-/**
- * GET /payments/:slug/:date/:orderNumber
- * Get payment request by linkId components
- */
-router.get('/:slug/:date/:orderNumber', async (req, res) => {
-  try {
-    const { slug, date, orderNumber } = req.params;
-    const linkId = `${slug}/${date}/${orderNumber}`;
-
-    const paymentRequest = await prisma.paymentRequest.findUnique({
-      where: { linkId },
-      include: {
-        merchant: {
-          select: {
-            businessName: true,
-            slug: true,
-          },
-        },
-      },
-    });
-
-    if (!paymentRequest) {
-      return res.status(404).json({ error: 'Payment request not found' });
-    }
-
-    // Check if expired
-    if (new Date() > paymentRequest.expiresAt && paymentRequest.status === 'PENDING') {
-      await prisma.paymentRequest.update({
-        where: { id: paymentRequest.id },
-        data: { status: 'EXPIRED' },
-      });
-      paymentRequest.status = 'EXPIRED';
-    }
-
-    return res.status(200).json({
-      success: true,
-      data: paymentRequest,
-    });
-  } catch (error) {
-    console.error('Get payment request error:', error);
-    return res.status(500).json({ error: 'Failed to fetch payment request' });
   }
 });
 

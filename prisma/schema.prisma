@@ -3,6 +3,15 @@ generator client {
   binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
+enum SettlementStatus {
+  PENDING
+  PAID
+  SETTLED
+  REJECTED
+  REISSUED
+  @@schema("payments")
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -96,6 +105,7 @@ model PaymentRequest {
   createdByIp   String?  @db.VarChar(45)
   buyerNote     String?  @db.Text
   status       String    @default("PENDING") @db.VarChar(20)
+  settlementStatus SettlementStatus @default(PENDING)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -124,6 +134,7 @@ model PaymentIntent {
   requiredConfs      Int?
   pluginIntentId     String?   @db.VarChar(255)
   status             String    @default("PENDING") @db.VarChar(20)
+  settlementStatus SettlementStatus @default(PENDING)
   amountReceived     Decimal?  @db.Decimal(38, 18)
   txId               String?   @db.VarChar(255)
   blockRef           Json?
@@ -230,3 +241,4 @@ model Wallet {
   @@schema("payments")
   @@map("wallets")
 }
+
