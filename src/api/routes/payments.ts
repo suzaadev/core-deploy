@@ -29,7 +29,7 @@ router.get('/requests', authenticate, async (req: AuthRequest, res: Response) =>
 
     // Transform status to ACTIVE/EXPIRED
     const now = new Date();
-    const transformed = paymentRequests.map(pr => ({
+    const transformed = paymentRequests.map((pr: any) => ({
       ...pr,
       amountFiat: parseFloat(pr.amountFiat.toString()),
       status: now > pr.expiresAt ? 'EXPIRED' : 'ACTIVE',

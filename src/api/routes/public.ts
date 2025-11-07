@@ -164,7 +164,7 @@ router.get('/payment/*', async (req: Request, res: Response) => {
     });
 
     const walletsWithPrices = await Promise.all(
-      wallets.map(async (wallet) => {
+      wallets.map(async (wallet: any) => {
         let cryptoAmount = 0;
         let coinPrice = 0;
         let symbol = '';

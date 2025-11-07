@@ -114,10 +114,10 @@ router.get('/stats', authenticate, async (req: AuthRequest, res: Response) => {
 
     const stats = {
       totalMerchants: merchants.length,
-      activeMerchants: merchants.filter(m => m.status === 'active').length,
-      suspendedMerchants: merchants.filter(m => m.status === 'suspended').length,
+      activeMerchants: merchants.filter((m: any) => m.status === 'active').length,
+      suspendedMerchants: merchants.filter((m: any) => m.status === 'suspended').length,
       totalPayments: payments.length,
-      totalVolume: payments.reduce((sum, p) => sum + parseFloat(p.amountFiat.toString()), 0)
+      totalVolume: payments.reduce((sum: number, p: any) => sum + parseFloat(p.amountFiat.toString()), 0)
     };
 
     return res.json({ success: true, data: stats });
