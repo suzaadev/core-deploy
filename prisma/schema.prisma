@@ -9,6 +9,8 @@ datasource db {
   schemas  = ["core", "payments", "events", "audit", "ops"]
 }
 
+/* ==================== CORE SCHEMA ==================== */
+
 model SuperAdmin {
   id           String    @id @default(uuid()) @db.Uuid
   email        String    @unique @db.VarChar(255)
@@ -76,6 +78,8 @@ model PluginRegistry {
   @@map("plugin_registry")
 }
 
+/* ==================== PAYMENTS SCHEMA ==================== */
+
 model PaymentRequest {
   id           String    @id @default(uuid()) @db.Uuid
   merchantId   String    @db.Uuid
@@ -138,6 +142,8 @@ model PaymentIntent {
   @@map("payment_intents")
 }
 
+/* ==================== EVENTS SCHEMA ==================== */
+
 model Outbox {
   id            String    @id @default(uuid()) @db.Uuid
   eventType     String    @db.VarChar(60)
@@ -163,29 +169,20 @@ model Webhook {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   
-  merchant          Merchant           @relation(fields: [merchantId], references: [id], onDelete: Cascade)
-  webhookDeliveries WebhookDelivery[]
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
 
   @@schema("events")
   @@map("webhooks")
 }
 
-model WebhookDelivery {
-  id           String    @id @default(uuid()) @db.Uuid
-  webhookId    String    @db.Uuid
-  outboxId     String    @db.Uuid
-  attempt      Int
-  statusCode   Int?
-  responseBody String?   @db.Text
-  error        String?   @db.Text
-  createdAt    DateTime  @default(now())
-  
-  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
-  
-  @@index([webhookId, createdAt])
-  @@schema("events")
-  @@map("webhook_deliveries")
-}
+// NOTE: webhook_deliveries removed from Core
+// Will be implemented in suzaa-webhook-service (future microservice)
+// That service will:
+// - Read from outbox table
+// - Deliver to webhook URLs
+// - Track deliveries in its own database
+
+/* ==================== AUDIT SCHEMA ==================== */
 
 model AuditLog {
   id         String    @id @default(uuid()) @db.Uuid
@@ -201,6 +198,8 @@ model AuditLog {
   @@schema("audit")
   @@map("audit_logs")
 }
+
+/* ==================== OPS SCHEMA ==================== */
 
 model AdvisoryLock {
   lockId Int @id @unique
