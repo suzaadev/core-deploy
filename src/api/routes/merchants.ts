@@ -13,6 +13,8 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
       select: {
         id: true,
         slug: true,
+        defaultCurrency: true,
+        timezone: true,
         email: true,
         businessName: true,
         defaultCurrency: true,
@@ -40,7 +42,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
 
 router.patch('/me', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const { allowUnsolicitedPayments, maxBuyerOrdersPerHour } = req.body;
+    const { allowUnsolicitedPayments, maxBuyerOrdersPerHour, defaultCurrency, timezone } = req.body;
 
     const updates: any = {};
     
@@ -51,6 +53,14 @@ router.patch('/me', authenticate, async (req: AuthRequest, res: Response) => {
     if (typeof maxBuyerOrdersPerHour === 'number' && maxBuyerOrdersPerHour >= 1 && maxBuyerOrdersPerHour <= 100) {
       updates.maxBuyerOrdersPerHour = maxBuyerOrdersPerHour;
     }
+    
+    if (defaultCurrency && ['USD', 'EUR', 'GBP'].includes(defaultCurrency)) {
+      updates.defaultCurrency = defaultCurrency;
+    }
+    
+    if (timezone && typeof timezone === 'string') {
+      updates.timezone = timezone;
+    }
 
     const merchant = await prisma.merchant.update({
       where: { id: req.merchant!.id },
@@ -58,6 +68,8 @@ router.patch('/me', authenticate, async (req: AuthRequest, res: Response) => {
       select: {
         id: true,
         slug: true,
+        defaultCurrency: true,
+        timezone: true,
         email: true,
         businessName: true,
         maxBuyerOrdersPerHour: true,
@@ -86,6 +98,8 @@ router.get('/', authenticateAdmin, async (req: AdminRequest, res: Response) => {
       select: {
         id: true,
         slug: true,
+        defaultCurrency: true,
+        timezone: true,
         email: true,
         businessName: true,
         defaultCurrency: true,

@@ -3,6 +3,7 @@ import { registerSuperAdmin } from '../../application/admin/RegisterSuperAdmin';
 import { loginSuperAdmin } from '../../application/admin/LoginSuperAdmin';
 import { verifySuperAdminPin } from '../../application/admin/VerifySuperAdminPin';
 import { prisma } from '../../infrastructure/database/client';
+import { authenticate, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
@@ -98,3 +99,30 @@ router.post('/verify', async (req: Request, res: Response) => {
 });
 
 export default router;
+
+// Get admin stats
+router.get('/stats', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const [merchants, payments] = await Promise.all([
+      prisma.merchant.findMany({
+        select: { id: true, status: true }
+      }),
+      prisma.paymentRequest.findMany({
+        select: { amountFiat: true }
+      })
+    ]);
+
+    const stats = {
+      totalMerchants: merchants.length,
+      activeMerchants: merchants.filter(m => m.status === 'active').length,
+      suspendedMerchants: merchants.filter(m => m.status === 'suspended').length,
+      totalPayments: payments.length,
+      totalVolume: payments.reduce((sum, p) => sum + parseFloat(p.amountFiat.toString()), 0)
+    };
+
+    return res.json({ success: true, data: stats });
+  } catch (error) {
+    console.error('Get admin stats error:', error);
+    return res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
