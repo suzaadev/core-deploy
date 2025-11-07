@@ -8,6 +8,9 @@ import authRoutes from './api/routes/auth';
 import adminRoutes from './api/routes/admin';
 import merchantRoutes from './api/routes/merchants';
 import paymentRoutes from './api/routes/payments';
+import walletRoutes from './api/routes/wallets';
+import priceRoutes from './api/routes/prices';
+import publicRoutes from './api/routes/public';
 
 const app = express();
 
@@ -32,6 +35,9 @@ app.use('/auth', authRoutes);
 app.use('/admin', adminRoutes);
 app.use('/merchants', merchantRoutes);
 app.use('/payments', paymentRoutes);
+app.use('/wallets', walletRoutes);
+app.use('/prices', priceRoutes);
+app.use('/public', publicRoutes);
 
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Error:', err);

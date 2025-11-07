@@ -52,6 +52,7 @@ model Merchant {
   updatedAt                DateTime  @updatedAt
 
   paymentRequests PaymentRequest[]
+  wallets         Wallet[]
   paymentIntents  PaymentIntent[]
   webhooks        Webhook[]
   auditLogs       AuditLog[]
@@ -206,4 +207,26 @@ model AdvisoryLock {
   
   @@schema("ops")
   @@map("advisory_locks")
+}
+
+
+
+model Wallet {
+  id         String   @id @default(uuid()) @db.Uuid
+  merchantId String   @db.Uuid
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  
+  blockchain String   @db.VarChar(20)
+  address    String   @db.VarChar(255)
+  label      String?  @db.VarChar(100)
+  enabled    Boolean  @default(true)
+  
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  @@unique([merchantId, blockchain, address])
+  @@index([merchantId])
+  @@index([enabled])
+  @@schema("payments")
+  @@map("wallets")
 }

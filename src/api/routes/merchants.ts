@@ -1,8 +1,80 @@
+import { authenticate, AuthRequest } from "../middleware/auth";
 import { Router, Response } from 'express';
 import { authenticateAdmin, AdminRequest } from '../middleware/adminAuth';
 import { prisma } from '../../infrastructure/database/client';
 
 const router = Router();
+
+// Merchant self-service endpoints (authenticated as merchant)
+router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const merchant = await prisma.merchant.findUnique({
+      where: { id: req.merchant!.id },
+      select: {
+        id: true,
+        slug: true,
+        email: true,
+        businessName: true,
+        defaultCurrency: true,
+        timezone: true,
+        maxBuyerOrdersPerHour: true,
+        allowUnsolicitedPayments: true,
+        emailVerified: true,
+        createdAt: true,
+      },
+    });
+
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+
+    return res.json({
+      success: true,
+      data: merchant,
+    });
+  } catch (error) {
+    console.error('Get merchant error:', error);
+    return res.status(500).json({ error: 'Failed to fetch merchant info' });
+  }
+});
+
+router.patch('/me', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const { allowUnsolicitedPayments, maxBuyerOrdersPerHour } = req.body;
+
+    const updates: any = {};
+    
+    if (typeof allowUnsolicitedPayments === 'boolean') {
+      updates.allowUnsolicitedPayments = allowUnsolicitedPayments;
+    }
+    
+    if (typeof maxBuyerOrdersPerHour === 'number' && maxBuyerOrdersPerHour >= 1 && maxBuyerOrdersPerHour <= 100) {
+      updates.maxBuyerOrdersPerHour = maxBuyerOrdersPerHour;
+    }
+
+    const merchant = await prisma.merchant.update({
+      where: { id: req.merchant!.id },
+      data: updates,
+      select: {
+        id: true,
+        slug: true,
+        email: true,
+        businessName: true,
+        maxBuyerOrdersPerHour: true,
+        allowUnsolicitedPayments: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      data: merchant,
+    });
+  } catch (error) {
+    console.error('Update merchant error:', error);
+    return res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
 
 /**
  * GET /merchants
