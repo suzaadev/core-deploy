@@ -12,7 +12,7 @@ async function checkRateLimit(merchantId: string, ip: string, maxAllowed: number
   const count = await redis.get(key);
   
   if (count && parseInt(count) >= maxAllowed) {
-    return false; // Rate limit exceeded
+    return false;
   }
   
   return true;
@@ -44,7 +44,6 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid amount' });
     }
 
-    // Find merchant
     const merchant = await prisma.merchant.findUnique({
       where: { slug: merchantSlug },
       select: {
@@ -64,7 +63,6 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'This merchant does not accept unsolicited payments' });
     }
 
-    // Check rate limit with merchant's setting
     const allowed = await checkRateLimit(merchant.id, clientIp, merchant.maxBuyerOrdersPerHour);
     if (!allowed) {
       return res.status(429).json({ 
@@ -72,7 +70,6 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       });
     }
 
-    // Get today's date and next order number
     const today = new Date();
     const dateStr = today.toISOString().split('T')[0].replace(/-/g, '');
 
@@ -86,9 +83,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
 
     const nextOrderNumber = lastOrder ? lastOrder.orderNumber + 1 : 1;
     const linkId = `${merchant.slug}/${dateStr}/${nextOrderNumber.toString().padStart(4, '0')}`;
-
-    // Create payment request
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
     const paymentRequest = await prisma.paymentRequest.create({
       data: {
@@ -107,8 +102,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       },
     });
 
-    // Increment rate limit
-    const ttlSeconds = 3600; // 1 hour
+    const ttlSeconds = 3600;
     await incrementRateLimit(merchant.id, clientIp, ttlSeconds);
 
     return res.status(201).json({
@@ -125,7 +119,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
   }
 });
 
-// Get payment request details
+// Get payment request details with available chains
 router.get('/payment/*', async (req: Request, res: Response) => {
   try {
     const linkId = req.params[0];
@@ -152,6 +146,7 @@ router.get('/payment/*', async (req: Request, res: Response) => {
 
     const isExpired = new Date() > paymentRequest.expiresAt;
 
+    // Fetch all enabled wallets for the merchant
     const wallets = await prisma.wallet.findMany({
       where: {
         merchantId: paymentRequest.merchantId,
@@ -161,11 +156,28 @@ router.get('/payment/*', async (req: Request, res: Response) => {
         id: true,
         blockchain: true,
         address: true,
+        createdAt: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
       },
     });
 
+    // Group wallets by blockchain - keep only the latest for each chain
+    const walletsByChain: Record<string, any> = {};
+    const availableChains: string[] = [];
+
+    wallets.forEach((wallet) => {
+      if (!walletsByChain[wallet.blockchain]) {
+        walletsByChain[wallet.blockchain] = wallet;
+        availableChains.push(wallet.blockchain);
+      }
+    });
+
+    // Calculate crypto amounts for each chain's latest wallet
     const walletsWithPrices = await Promise.all(
-      wallets.map(async (wallet: any) => {
+      availableChains.map(async (chain) => {
+        const wallet = walletsByChain[chain];
         let cryptoAmount = 0;
         let coinPrice = 0;
         let symbol = '';
@@ -197,7 +209,9 @@ router.get('/payment/*', async (req: Request, res: Response) => {
         }
 
         return {
-          ...wallet,
+          id: wallet.id,
+          blockchain: wallet.blockchain,
+          address: wallet.address,
           symbol,
           cryptoAmount,
           coinPrice,
@@ -220,6 +234,7 @@ router.get('/payment/*', async (req: Request, res: Response) => {
           slug: paymentRequest.merchant.slug,
         },
         wallets: walletsWithPrices,
+        availableChains,
       },
     });
   } catch (error) {
