@@ -63,7 +63,7 @@ export async function authenticate(
         businessName: true,
         suspendedAt: true,
         suspendedBy: true,
-        suspensionReason: true,
+        suspendedReason: true,
       },
     });
 
