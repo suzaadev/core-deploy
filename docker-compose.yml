@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:17-alpine
+    container_name: suzaa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: suzaa_core
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secure_password_change_me}
+      POSTGRES_DB: suzaa_core_db
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - suzaa-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U suzaa_core"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: suzaa-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-secure_redis_password}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - suzaa-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # SUZAA Core Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: suzaa-core
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      BASE_URL: ${BASE_URL:-http://localhost:3000}
+
+      # Database
+      DATABASE_URL: postgresql://suzaa_core:${DB_PASSWORD:-secure_password_change_me}@postgres:5432/suzaa_core_db?schema=core
+
+      # Redis
+      REDIS_URL: redis://:${REDIS_PASSWORD:-secure_redis_password}@redis:6379
+
+      # Security
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      API_KEY_SALT: ${API_KEY_SALT}
+      PLUGIN_HMAC_SECRET: ${PLUGIN_HMAC_SECRET}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-10}
+
+      # CORS
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+
+      # Rate Limiting
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+
+      # Cache
+      CACHE_PLUGIN_WALLETS_TTL: ${CACHE_PLUGIN_WALLETS_TTL:-60}
+      CACHE_PRICE_TTL: ${CACHE_PRICE_TTL:-300}
+
+      # PIN
+      PIN_EXPIRY_MINUTES: ${PIN_EXPIRY_MINUTES:-10}
+      PIN_MAX_ATTEMPTS: ${PIN_MAX_ATTEMPTS:-5}
+
+      # Payments
+      PAYMENT_DEFAULT_EXPIRY: ${PAYMENT_DEFAULT_EXPIRY:-60}
+      PAYMENT_MAX_EXPIRY: ${PAYMENT_MAX_EXPIRY:-1440}
+      PAYMENT_MIN_EXPIRY: ${PAYMENT_MIN_EXPIRY:-5}
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+    ports:
+      - "${APP_PORT:-3000}:3000"
+
+    volumes:
+      - ./logs:/app/logs
+
+    networks:
+      - suzaa-network
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  suzaa-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local

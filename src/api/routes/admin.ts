@@ -3,7 +3,7 @@ import { registerSuperAdmin } from '../../application/admin/RegisterSuperAdmin';
 import { loginSuperAdmin } from '../../application/admin/LoginSuperAdmin';
 import { verifySuperAdminPin } from '../../application/admin/VerifySuperAdminPin';
 import { prisma } from '../../infrastructure/database/client';
-import { authenticateAdmin, AdminAuthRequest } from '../middleware/adminAuth';
+import { authenticateAdmin, AdminRequest } from '../middleware/adminAuth';
 
 const router = Router();
 
@@ -90,7 +90,7 @@ router.post('/verify', async (req: Request, res: Response) => {
 });
 
 // GET /admin/merchants
-router.get('/merchants', authenticateAdmin, async (req: AdminAuthRequest, res: Response) => {
+router.get('/merchants', authenticateAdmin, async (req: AdminRequest, res: Response) => {
   try {
     const merchants = await prisma.merchant.findMany({
       select: {
@@ -113,7 +113,7 @@ router.get('/merchants', authenticateAdmin, async (req: AdminAuthRequest, res: R
 });
 
 // POST /admin/merchants/:id/suspend
-router.post('/merchants/:id/suspend', authenticateAdmin, async (req: AdminAuthRequest, res: Response) => {
+router.post('/merchants/:id/suspend', authenticateAdmin, async (req: AdminRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -130,7 +130,7 @@ router.post('/merchants/:id/suspend', authenticateAdmin, async (req: AdminAuthRe
 });
 
 // POST /admin/merchants/:id/unsuspend
-router.post('/merchants/:id/unsuspend', authenticateAdmin, async (req: AdminAuthRequest, res: Response) => {
+router.post('/merchants/:id/unsuspend', authenticateAdmin, async (req: AdminRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -147,7 +147,7 @@ router.post('/merchants/:id/unsuspend', authenticateAdmin, async (req: AdminAuth
 });
 
 // DELETE /admin/merchants/:id
-router.delete('/merchants/:id', authenticateAdmin, async (req: AdminAuthRequest, res: Response) => {
+router.delete('/merchants/:id', authenticateAdmin, async (req: AdminRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -163,7 +163,7 @@ router.delete('/merchants/:id', authenticateAdmin, async (req: AdminAuthRequest,
 });
 
 // GET /admin/stats
-router.get('/stats', authenticateAdmin, async (req: AdminAuthRequest, res: Response) => {
+router.get('/stats', authenticateAdmin, async (req: AdminRequest, res: Response) => {
   try {
     const [merchants, payments] = await Promise.all([
       prisma.merchant.findMany({
@@ -176,10 +176,10 @@ router.get('/stats', authenticateAdmin, async (req: AdminAuthRequest, res: Respo
 
     const stats = {
       totalMerchants: merchants.length,
-      activeMerchants: merchants.filter(m => m.suspendedAt === null).length,
-      suspendedMerchants: merchants.filter(m => m.suspendedAt !== null).length,
+      activeMerchants: merchants.filter((m: any) => m.suspendedAt === null).length,
+      suspendedMerchants: merchants.filter((m: any) => m.suspendedAt !== null).length,
       totalPayments: payments.length,
-      totalVolume: payments.reduce((sum, p) => sum + parseFloat(p.amountFiat.toString()), 0)
+      totalVolume: payments.reduce((sum: number, p: any) => sum + parseFloat(p.amountFiat.toString()), 0)
     };
 
     return res.json({ success: true, data: stats });

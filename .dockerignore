@@ -1,0 +1,67 @@
+
+# Dependencies
+node_modules
+npm-debug.log
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
+dist
+build
+*.tsbuildinfo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+CONTRIBUTING.md
+LICENSE
+*.md
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Logs
+logs
+*.log
+
+# Tests
+coverage
+.nyc_output
+test
+tests
+**/__tests__
+**/*.test.ts
+**/*.spec.ts
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.travis.yml
+
+# Misc
+tmp
+temp
+.cache

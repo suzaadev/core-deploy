@@ -1,5 +1,15 @@
 import { prisma } from '../../infrastructure/database/client';
-import { generateSlug, generatePin, getPinExpiryTime, isValidEmail, sendPinToEmail } from '../../domain/utils/auth';
+import {
+  generateSlug,
+  generatePin,
+  getPinExpiryTime,
+  isValidEmail,
+  normalizeEmail,
+  sendPinToEmail,
+  hashPin,
+} from '../../domain/utils/auth';
+import { ConflictError, BadRequestError, InternalServerError } from '../../common/errors/AppError';
+import { logger } from '../../common/logger';
 
 interface RegisterMerchantInput {
   email: string;
@@ -9,83 +19,140 @@ interface RegisterMerchantInput {
 
 interface RegisterMerchantOutput {
   success: boolean;
-  merchantId?: string;
-  slug?: string;
+  merchantId: string;
+  slug: string;
   message: string;
 }
 
-export async function registerMerchant(input: RegisterMerchantInput): Promise<RegisterMerchantOutput> {
+/**
+ * Register a new merchant account
+ * - Validates input
+ * - Generates unique slug
+ * - Creates merchant with hashed PIN
+ * - Sends PIN via email
+ * - Creates audit log
+ *
+ * IMPROVEMENTS:
+ * - PIN is now hashed with bcrypt before storage
+ * - Uses transaction for data consistency
+ * - Proper error handling with custom error classes
+ * - Structured logging
+ * - Email normalization
+ */
+export async function registerMerchant(
+  input: RegisterMerchantInput
+): Promise<RegisterMerchantOutput> {
   const { email, businessName, defaultCurrency = 'USD' } = input;
 
-  // Validate email
-  if (!isValidEmail(email)) {
-    return { success: false, message: 'Invalid email format' };
+  logger.info('Merchant registration started', { email, businessName });
+
+  // Normalize and validate email
+  const normalizedEmail = normalizeEmail(email);
+
+  if (!isValidEmail(normalizedEmail)) {
+    throw new BadRequestError('Invalid email format');
   }
 
   // Validate business name
   if (!businessName || businessName.trim().length < 2) {
-    return { success: false, message: 'Business name must be at least 2 characters' };
+    throw new BadRequestError('Business name must be at least 2 characters');
+  }
+
+  if (businessName.trim().length > 100) {
+    throw new BadRequestError('Business name cannot exceed 100 characters');
   }
 
   // Check if email already exists
   const existingMerchant = await prisma.merchant.findUnique({
-    where: { email: email.toLowerCase() },
+    where: { email: normalizedEmail },
   });
 
   if (existingMerchant) {
-    return { success: false, message: 'Email already registered' };
+    logger.warn('Attempted registration with existing email', { email: normalizedEmail });
+    throw new ConflictError('Email already registered');
   }
 
-  // Generate unique slug
+  // Generate unique slug with retries
   let slug = generateSlug();
-  let slugExists = await prisma.merchant.findUnique({ where: { slug } });
-  
-  // Retry up to 10 times if slug collision
   let attempts = 0;
-  while (slugExists && attempts < 10) {
+  const maxAttempts = 10;
+
+  while (attempts < maxAttempts) {
+    const slugExists = await prisma.merchant.findUnique({
+      where: { slug },
+    });
+
+    if (!slugExists) break;
+
     slug = generateSlug();
-    slugExists = await prisma.merchant.findUnique({ where: { slug } });
     attempts++;
   }
 
-  if (slugExists) {
-    return { success: false, message: 'Failed to generate unique slug, please try again' };
+  if (attempts === maxAttempts) {
+    logger.error('Failed to generate unique slug after max attempts', { attempts });
+    throw new InternalServerError('Failed to generate unique identifier. Please try again.');
   }
 
-  // Generate PIN
+  // Generate and hash PIN
   const pin = generatePin();
+  const hashedPin = await hashPin(pin);
   const pinExpiresAt = getPinExpiryTime();
 
-  // Create merchant
-  const merchant = await prisma.merchant.create({
-    data: {
-      email: email.toLowerCase(),
-      businessName: businessName.trim(),
-      defaultCurrency,
-      slug,
-      currentPin: pin,
-      pinExpiresAt,
-      emailVerified: false,
-    },
-  });
+  try {
+    // Use transaction to ensure data consistency
+    const merchant = await prisma.$transaction(async (tx: any) => {
+      // Create merchant with hashed PIN
+      const newMerchant = await tx.merchant.create({
+        data: {
+          email: normalizedEmail,
+          businessName: businessName.trim(),
+          defaultCurrency,
+          slug,
+          currentPin: hashedPin, // FIXED: Store hashed PIN
+          pinExpiresAt,
+          pinAttempts: 0,
+          emailVerified: false,
+          allowUnsolicitedPayments: false,
+        },
+      });
 
-  // Send PIN via email (console for now)
-  sendPinToEmail(email, pin, 'signup');
+      // Create audit log
+      await tx.auditLog.create({
+        data: {
+          merchantId: newMerchant.id,
+          action: 'MERCHANT_REGISTERED',
+          resourceId: newMerchant.id,
+          payload: {
+            email: normalizedEmail,
+            businessName: businessName.trim(),
+            slug,
+          },
+        },
+      });
 
-  // Audit log
-  await prisma.auditLog.create({
-    data: {
+      return newMerchant;
+    });
+
+    // Send PIN via email (outside transaction)
+    sendPinToEmail(normalizedEmail, pin, 'signup');
+
+    logger.info('Merchant registered successfully', {
       merchantId: merchant.id,
-      action: 'MERCHANT_REGISTERED',
-      resourceId: merchant.id,
-      payload: { email, businessName, slug },
-    },
-  });
+      email: normalizedEmail,
+      slug: merchant.slug,
+    });
 
-  return {
-    success: true,
-    merchantId: merchant.id,
-    slug: merchant.slug,
-    message: 'Registration successful. Please check your email for the verification PIN.',
-  };
+    return {
+      success: true,
+      merchantId: merchant.id,
+      slug: merchant.slug,
+      message: 'Registration successful. Please check your email for the verification PIN.',
+    };
+  } catch (error) {
+    logger.error('Merchant registration failed', {
+      email: normalizedEmail,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+    throw error;
+  }
 }
