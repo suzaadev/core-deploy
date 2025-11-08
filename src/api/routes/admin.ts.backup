@@ -3,11 +3,14 @@ import { registerSuperAdmin } from '../../application/admin/RegisterSuperAdmin';
 import { loginSuperAdmin } from '../../application/admin/LoginSuperAdmin';
 import { verifySuperAdminPin } from '../../application/admin/VerifySuperAdminPin';
 import { prisma } from '../../infrastructure/database/client';
-import { authenticateAdmin, AdminAuthRequest } from '../middleware/adminAuth';
+import { authenticate, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
-// POST /admin/register
+/**
+ * POST /admin/register
+ * Register super admin (one-time only)
+ */
 router.post('/register', async (req: Request, res: Response) => {
   try {
     const { email, name } = req.body;
@@ -37,7 +40,10 @@ router.post('/register', async (req: Request, res: Response) => {
   }
 });
 
-// POST /admin/login
+/**
+ * POST /admin/login
+ * Request PIN for super admin login
+ */
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
@@ -58,7 +64,10 @@ router.post('/login', async (req: Request, res: Response) => {
   }
 });
 
-// POST /admin/verify
+/**
+ * POST /admin/verify
+ * Verify PIN and get JWT token
+ */
 router.post('/verify', async (req: Request, res: Response) => {
   try {
     const { email, pin } = req.body;
@@ -89,8 +98,37 @@ router.post('/verify', async (req: Request, res: Response) => {
   }
 });
 
-// GET /admin/merchants
-router.get('/merchants', authenticateAdmin, async (req: AdminAuthRequest, res: Response) => {
+export default router;
+
+// Get admin stats
+router.get('/stats', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const [merchants, payments] = await Promise.all([
+      prisma.merchant.findMany({
+        select: { id: true, status: true }
+      }),
+      prisma.paymentRequest.findMany({
+        select: { amountFiat: true }
+      })
+    ]);
+
+    const stats = {
+      totalMerchants: merchants.length,
+      activeMerchants: merchants.filter((m: any) => m.status === 'active').length,
+      suspendedMerchants: merchants.filter((m: any) => m.status === 'suspended').length,
+      totalPayments: payments.length,
+      totalVolume: payments.reduce((sum: number, p: any) => sum + parseFloat(p.amountFiat.toString()), 0)
+    };
+
+    return res.json({ success: true, data: stats });
+  } catch (error) {
+    console.error('Get admin stats error:', error);
+    return res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+// Get all merchants (admin only)
+router.get('/merchants', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const merchants = await prisma.merchant.findMany({
       select: {
@@ -98,7 +136,7 @@ router.get('/merchants', authenticateAdmin, async (req: AdminAuthRequest, res: R
         email: true,
         businessName: true,
         slug: true,
-        suspendedAt: true,
+        status: true,
         emailVerified: true,
         createdAt: true,
       },
@@ -112,14 +150,14 @@ router.get('/merchants', authenticateAdmin, async (req: AdminAuthRequest, res: R
   }
 });
 
-// POST /admin/merchants/:id/suspend
-router.post('/merchants/:id/suspend', authenticateAdmin, async (req: AdminAuthRequest, res: Response) => {
+// Suspend merchant
+router.post('/merchants/:id/suspend', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
     const merchant = await prisma.merchant.update({
       where: { id },
-      data: { suspendedAt: new Date() },
+      data: { status: 'suspended' },
     });
 
     return res.json({ success: true, data: merchant });
@@ -129,14 +167,14 @@ router.post('/merchants/:id/suspend', authenticateAdmin, async (req: AdminAuthRe
   }
 });
 
-// POST /admin/merchants/:id/unsuspend
-router.post('/merchants/:id/unsuspend', authenticateAdmin, async (req: AdminAuthRequest, res: Response) => {
+// Unsuspend merchant
+router.post('/merchants/:id/unsuspend', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
     const merchant = await prisma.merchant.update({
       where: { id },
-      data: { suspendedAt: null },
+      data: { status: 'active' },
     });
 
     return res.json({ success: true, data: merchant });
@@ -146,8 +184,8 @@ router.post('/merchants/:id/unsuspend', authenticateAdmin, async (req: AdminAuth
   }
 });
 
-// DELETE /admin/merchants/:id
-router.delete('/merchants/:id', authenticateAdmin, async (req: AdminAuthRequest, res: Response) => {
+// Delete merchant
+router.delete('/merchants/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -162,12 +200,12 @@ router.delete('/merchants/:id', authenticateAdmin, async (req: AdminAuthRequest,
   }
 });
 
-// GET /admin/stats
-router.get('/stats', authenticateAdmin, async (req: AdminAuthRequest, res: Response) => {
+// Get admin stats
+router.get('/stats', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const [merchants, payments] = await Promise.all([
       prisma.merchant.findMany({
-        select: { id: true, suspendedAt: true }
+        select: { id: true, status: true }
       }),
       prisma.paymentRequest.findMany({
         select: { amountFiat: true }
@@ -176,8 +214,8 @@ router.get('/stats', authenticateAdmin, async (req: AdminAuthRequest, res: Respo
 
     const stats = {
       totalMerchants: merchants.length,
-      activeMerchants: merchants.filter(m => m.suspendedAt === null).length,
-      suspendedMerchants: merchants.filter(m => m.suspendedAt !== null).length,
+      activeMerchants: merchants.filter(m => m.status === 'active').length,
+      suspendedMerchants: merchants.filter(m => m.status === 'suspended').length,
       totalPayments: payments.length,
       totalVolume: payments.reduce((sum, p) => sum + parseFloat(p.amountFiat.toString()), 0)
     };
