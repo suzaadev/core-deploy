@@ -25,30 +25,56 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
 // Add new wallet
 router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const { blockchain, address, label } = req.body;
+    const { 
+      network, 
+      tokenSymbol, 
+      tokenName, 
+      tokenType, 
+      tokenDecimals, 
+      contractAddress, 
+      walletAddress, 
+      label 
+    } = req.body;
 
-    if (!blockchain || !address) {
-      return res.status(400).json({ error: 'Blockchain and address are required' });
+    // Validate required fields
+    if (!network || !tokenSymbol || !tokenType || !walletAddress) {
+      return res.status(400).json({ 
+        error: 'Network, token symbol, token type, and wallet address are required' 
+      });
     }
 
     // Check if wallet already exists
     const existing = await prisma.wallet.findFirst({
       where: {
         merchantId: req.merchant!.id,
-        blockchain,
-        address,
+        network: network.toUpperCase(),
+        tokenSymbol: tokenSymbol.toUpperCase(),
+        walletAddress,
       },
     });
 
     if (existing) {
-      return res.status(400).json({ error: 'Wallet already exists' });
+      return res.status(400).json({ 
+        error: 'Wallet with this network, token, and address combination already exists' 
+      });
+    }
+
+    // Validate token decimals
+    const decimals = tokenDecimals || 9;
+    if (decimals < 0 || decimals > 18) {
+      return res.status(400).json({ error: 'Token decimals must be between 0 and 18' });
     }
 
     const wallet = await prisma.wallet.create({
       data: {
         merchantId: req.merchant!.id,
-        blockchain: blockchain.toUpperCase(),
-        address,
+        network: network.toUpperCase(),
+        tokenSymbol: tokenSymbol.toUpperCase(),
+        tokenName: tokenName || null,
+        tokenType: tokenType.toUpperCase(),
+        tokenDecimals: decimals,
+        contractAddress: contractAddress || null,
+        walletAddress,
         label: label || null,
         enabled: true,
       },

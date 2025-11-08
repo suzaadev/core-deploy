@@ -29,6 +29,59 @@ async function incrementRateLimit(merchantId: string, ip: string, ttl: number): 
   }
 }
 
+// Get merchant's public wallets
+router.get('/wallets/:slug', async (req: Request, res: Response) => {
+  try {
+    const { slug } = req.params;
+
+    const merchant = await prisma.merchant.findUnique({
+      where: { slug },
+      select: {
+        id: true,
+        businessName: true,
+        slug: true,
+      },
+    });
+
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+
+    const wallets = await prisma.wallet.findMany({
+      where: {
+        merchantId: merchant.id,
+        enabled: true,
+      },
+      select: {
+        network: true,
+        tokenSymbol: true,
+        tokenName: true,
+        tokenType: true,
+        walletAddress: true,
+        contractAddress: true,
+        createdAt: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        merchant: {
+          name: merchant.businessName,
+          slug: merchant.slug,
+        },
+        wallets,
+      },
+    });
+  } catch (error) {
+    console.error('Get public wallets error:', error);
+    return res.status(500).json({ error: 'Failed to fetch wallets' });
+  }
+});
+
 // Create payment request (public - no auth, rate limited)
 router.post('/create-payment', async (req: Request, res: Response) => {
   try {
@@ -119,7 +172,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
   }
 });
 
-// Get payment request details with available chains
+// Get payment request details with network+token combinations
 router.get('/payment/*', async (req: Request, res: Response) => {
   try {
     const linkId = req.params[0];
@@ -146,7 +199,6 @@ router.get('/payment/*', async (req: Request, res: Response) => {
 
     const isExpired = new Date() > paymentRequest.expiresAt;
 
-    // Fetch all enabled wallets for the merchant
     const wallets = await prisma.wallet.findMany({
       where: {
         merchantId: paymentRequest.merchantId,
@@ -154,8 +206,13 @@ router.get('/payment/*', async (req: Request, res: Response) => {
       },
       select: {
         id: true,
-        blockchain: true,
-        address: true,
+        network: true,
+        tokenSymbol: true,
+        tokenName: true,
+        tokenType: true,
+        tokenDecimals: true,
+        contractAddress: true,
+        walletAddress: true,
         createdAt: true,
       },
       orderBy: {
@@ -163,56 +220,48 @@ router.get('/payment/*', async (req: Request, res: Response) => {
       },
     });
 
-    // Group wallets by blockchain - keep only the latest for each chain
-    const walletsByChain: Record<string, any> = {};
-    const availableChains: string[] = [];
+    const walletsByNetworkToken: Record<string, any> = {};
+    const availableOptions: Array<{network: string, token: string}> = [];
 
     wallets.forEach((wallet) => {
-      if (!walletsByChain[wallet.blockchain]) {
-        walletsByChain[wallet.blockchain] = wallet;
-        availableChains.push(wallet.blockchain);
+      const key = `${wallet.network}-${wallet.tokenSymbol}`;
+      if (!walletsByNetworkToken[key]) {
+        walletsByNetworkToken[key] = wallet;
+        availableOptions.push({
+          network: wallet.network,
+          token: wallet.tokenSymbol,
+        });
       }
     });
 
-    // Calculate crypto amounts for each chain's latest wallet
     const walletsWithPrices = await Promise.all(
-      availableChains.map(async (chain) => {
-        const wallet = walletsByChain[chain];
+      availableOptions.map(async (option) => {
+        const key = `${option.network}-${option.token}`;
+        const wallet = walletsByNetworkToken[key];
         let cryptoAmount = 0;
         let coinPrice = 0;
-        let symbol = '';
 
         try {
-          switch (wallet.blockchain) {
-            case 'SOLANA':
-              symbol = 'SOL';
-              break;
-            case 'ETHEREUM':
-              symbol = 'ETH';
-              break;
-            case 'BITCOIN':
-              symbol = 'BTC';
-              break;
-            default:
-              symbol = 'SOL';
-          }
-
           const conversion = await CoinGeckoPriceService.convertUsdToCrypto(
             parseFloat(paymentRequest.amountFiat.toString()),
-            symbol
+            wallet.tokenSymbol
           );
 
           cryptoAmount = conversion.amount;
           coinPrice = conversion.price;
         } catch (error) {
-          console.error(`Failed to convert for ${wallet.blockchain}:`, error);
+          console.error(`Failed to convert for ${wallet.network} ${wallet.tokenSymbol}:`, error);
         }
 
         return {
           id: wallet.id,
-          blockchain: wallet.blockchain,
-          address: wallet.address,
-          symbol,
+          network: wallet.network,
+          tokenSymbol: wallet.tokenSymbol,
+          tokenName: wallet.tokenName,
+          tokenType: wallet.tokenType,
+          tokenDecimals: wallet.tokenDecimals,
+          contractAddress: wallet.contractAddress,
+          walletAddress: wallet.walletAddress,
           cryptoAmount,
           coinPrice,
         };
@@ -234,7 +283,7 @@ router.get('/payment/*', async (req: Request, res: Response) => {
           slug: paymentRequest.merchant.slug,
         },
         wallets: walletsWithPrices,
-        availableChains,
+        availableOptions,
       },
     });
   } catch (error) {

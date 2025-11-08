@@ -191,13 +191,6 @@ model Webhook {
   @@map("webhooks")
 }
 
-// NOTE: webhook_deliveries removed from Core
-// Will be implemented in suzaa-webhook-service (future microservice)
-// That service will:
-// - Read from outbox table
-// - Deliver to webhook URLs
-// - Track deliveries in its own database
-
 /* ==================== AUDIT SCHEMA ==================== */
 
 model AuditLog {
@@ -225,25 +218,39 @@ model AdvisoryLock {
   @@map("advisory_locks")
 }
 
-
+/* ==================== UPDATED WALLET MODEL ==================== */
 
 model Wallet {
-  id         String   @id @default(uuid()) @db.Uuid
-  merchantId String   @db.Uuid
-  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  id              String   @id @default(uuid()) @db.Uuid
+  merchantId      String   @db.Uuid
+  merchant        Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   
-  blockchain String   @db.VarChar(20)
-  address    String   @db.VarChar(255)
-  label      String?  @db.VarChar(100)
-  enabled    Boolean  @default(true)
+  // Network Information
+  network         String   @db.VarChar(20)        // SOLANA, ETHEREUM, BITCOIN, POLYGON, etc.
   
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  // Token Information
+  tokenSymbol     String   @db.VarChar(20)        // SOL, USDC, USDT, ETH, BTC, etc.
+  tokenName       String?  @db.VarChar(100)       // "Solana", "USD Coin", "Tether USD"
+  tokenType       String   @db.VarChar(20)        // NATIVE, SPL, ERC20, ERC721, BEP20, etc.
+  tokenDecimals   Int      @default(9)            // 9 for SOL, 6 for USDC, 18 for ETH
   
-  @@unique([merchantId, blockchain, address])
-  @@index([merchantId])
-  @@index([enabled])
+  // Contract/Mint Address (null for native tokens like SOL, ETH, BTC)
+  contractAddress String?  @db.VarChar(255)       // Token mint/contract address
+  
+  // Wallet Address
+  walletAddress   String   @db.VarChar(255)       // The actual receiving address
+  
+  // Optional metadata
+  label           String?  @db.VarChar(100)       // Custom label by merchant
+  enabled         Boolean  @default(true)         // Active status
+  
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@unique([merchantId, network, tokenSymbol, walletAddress])
+  @@index([merchantId, enabled])
+  @@index([network, tokenSymbol])
   @@schema("payments")
   @@map("wallets")
 }
-
