@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { prisma } from '../../infrastructure/database/client';
 import { CoinGeckoPriceService } from '../../infrastructure/pricing/CoinGeckoPriceService';
+import { config } from '../../config';
 
 const router = Router();
 
@@ -131,7 +132,7 @@ router.post('/requests', authenticate, async (req: AuthRequest, res: Response) =
       data: {
         ...paymentRequest,
         amountFiat: parseFloat(paymentRequest.amountFiat.toString()),
-        paymentUrl: `http://116.203.195.248:3001/${linkId}`,
+        paymentUrl: `${config.baseUrl}/${linkId}`,
       },
     });
   } catch (error) {
