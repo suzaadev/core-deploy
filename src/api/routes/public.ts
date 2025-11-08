@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../../infrastructure/database/client';
 import { CoinGeckoPriceService } from '../../infrastructure/pricing/CoinGeckoPriceService';
 import { redis } from '../../infrastructure/cache/redis';
+import { config } from '../../config';
 
 const router = Router();
 
@@ -115,7 +116,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       data: {
         linkId: paymentRequest.linkId,
         orderNumber: nextOrderNumber.toString().padStart(4, '0'),
-        paymentUrl: `http://116.203.195.248:3001/${linkId}`,
+        paymentUrl: `${config.baseUrl}/${linkId}`,
       },
     });
   } catch (error) {
