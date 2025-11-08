@@ -56,7 +56,7 @@ export async function loginMerchant(
       businessName: true,
       suspendedAt: true,
       suspendedBy: true,
-      suspensionReason: true,
+      suspendedReason: true,
     },
   });
 
