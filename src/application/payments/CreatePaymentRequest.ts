@@ -40,7 +40,7 @@ export async function createPaymentRequest(
     merchantId,
     amountFiat,
     description,
-    expiryMinutes = 60,
+    expiryMinutes,
     createdBy,
     buyerIp,
     buyerNote,
@@ -48,11 +48,6 @@ export async function createPaymentRequest(
 
   if (amountFiat <= 0) {
     return { success: false, message: 'Amount must be greater than 0' };
-  }
-
-  const validExpiries = [15, 30, 60, 120];
-  if (!validExpiries.includes(expiryMinutes)) {
-    return { success: false, message: 'Invalid expiry time. Must be 15, 30, 60, or 120 minutes' };
   }
 
   const merchant = await prisma.merchant.findUnique({
@@ -65,6 +60,7 @@ export async function createPaymentRequest(
       maxBuyerOrdersPerHour: true,
       suspendedAt: true,
       paymentLinkMonthlyLimit: true,
+      defaultPaymentExpiryMinutes: true,
     },
   });
 
@@ -95,6 +91,12 @@ export async function createPaymentRequest(
   const nowInZone = DateTime.now().setZone(timezone);
   const monthStartUtc = nowInZone.startOf('month').toUTC();
   const nextMonthStartUtc = monthStartUtc.plus({ months: 1 });
+  const allowedExpiries = [15, 30, 60, 120];
+  const effectiveExpiry = expiryMinutes ?? merchant.defaultPaymentExpiryMinutes ?? 60;
+
+  if (!allowedExpiries.includes(effectiveExpiry)) {
+    return { success: false, message: 'Invalid expiry time. Must be 15, 30, 60, or 120 minutes' };
+  }
 
   try {
     const { paymentRequest, linkId, expiresAt } = await prisma.$transaction(
@@ -118,7 +120,7 @@ export async function createPaymentRequest(
         const orderDate = getCurrentOrderDate(merchant.timezone);
         const orderNumber = await getNextOrderNumber(merchantId, orderDate, tx);
         const linkId = generateLinkId(merchant.slug, orderDate, orderNumber);
-        const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000);
+        const expiresAt = new Date(Date.now() + effectiveExpiry * 60 * 1000);
 
         const paymentRequest = await tx.paymentRequest.create({
           data: {
@@ -129,7 +131,7 @@ export async function createPaymentRequest(
             amountFiat,
             currencyFiat: merchant.defaultCurrency,
             description,
-            expiryMinutes,
+            expiryMinutes: effectiveExpiry,
             expiresAt,
             createdBy,
             createdByIp: buyerIp,

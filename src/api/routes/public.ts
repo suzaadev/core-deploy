@@ -106,6 +106,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
         businessName: true,
         allowUnsolicitedPayments: true,
         maxBuyerOrdersPerHour: true,
+        defaultPaymentExpiryMinutes: true,
       },
     });
 
@@ -128,7 +129,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       merchantId: merchant.id,
       amountFiat: parsedAmount,
       description,
-      expiryMinutes: 60,
+      expiryMinutes: merchant.defaultPaymentExpiryMinutes,
       createdBy: 'buyer',
       buyerIp: clientIp,
     });

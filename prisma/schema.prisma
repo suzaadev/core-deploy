@@ -59,6 +59,7 @@ model Merchant {
   paymentLinkMonthlyLimit  Int       @default(100)
   tier                     MerchantTier @default(TIER_1)
   walletLimit              Int       @default(10)
+  defaultPaymentExpiryMinutes Int   @default(60)
   currentPin               String?   @db.VarChar(60)
   pinExpiresAt             DateTime?
   pinAttempts              Int       @default(0)

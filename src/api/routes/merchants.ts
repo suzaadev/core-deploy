@@ -21,6 +21,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
         allowUnsolicitedPayments: true,
         emailVerified: true,
         createdAt: true,
+        defaultPaymentExpiryMinutes: true,
       },
     });
 
@@ -40,7 +41,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
 
 router.patch('/me', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const { allowUnsolicitedPayments, maxBuyerOrdersPerHour, defaultCurrency, timezone } = req.body;
+    const { allowUnsolicitedPayments, maxBuyerOrdersPerHour, defaultCurrency, timezone, defaultPaymentExpiryMinutes } = req.body;
 
     const updates: any = {};
     
@@ -60,6 +61,14 @@ router.patch('/me', authenticate, async (req: AuthRequest, res: Response) => {
       updates.timezone = timezone;
     }
 
+    if (defaultPaymentExpiryMinutes !== undefined) {
+      const allowed = [15, 30, 60, 120];
+      if (!allowed.includes(defaultPaymentExpiryMinutes)) {
+        return res.status(400).json({ error: 'defaultPaymentExpiryMinutes must be one of 15, 30, 60, or 120' });
+      }
+      updates.defaultPaymentExpiryMinutes = defaultPaymentExpiryMinutes;
+    }
+
     const merchant = await prisma.merchant.update({
       where: { id: req.merchant!.id },
       data: updates,
@@ -72,6 +81,7 @@ router.patch('/me', authenticate, async (req: AuthRequest, res: Response) => {
         businessName: true,
         maxBuyerOrdersPerHour: true,
         allowUnsolicitedPayments: true,
+        defaultPaymentExpiryMinutes: true,
       },
     });
 

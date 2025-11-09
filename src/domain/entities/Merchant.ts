@@ -17,6 +17,7 @@ export interface MerchantProps {
   paymentLinkMonthlyLimit: number;
   tier: MerchantTier;
   walletLimit: number;
+  defaultPaymentExpiryMinutes: number;
   currentPin?: PIN;
   pinExpiresAt?: Date;
   pinAttempts: number;
@@ -43,6 +44,7 @@ export class Merchant {
     this.validateTier(props.tier);
     this.validateMonthlyLimit(props.paymentLinkMonthlyLimit);
     this.validateWalletLimit(props.walletLimit);
+    this.validateDefaultExpiry(props.defaultPaymentExpiryMinutes);
     this.props = props;
   }
 
@@ -62,6 +64,11 @@ export class Merchant {
 
     if (props.walletLimit < 0) {
       throw new ValidationError('Wallet limit cannot be negative');
+    }
+
+    const allowedExpiries = [15, 30, 60, 120];
+    if (!allowedExpiries.includes(props.defaultPaymentExpiryMinutes)) {
+      throw new ValidationError('Default payment expiry must be 15, 30, 60, or 120 minutes');
     }
 
     return new Merchant(props);
@@ -114,6 +121,10 @@ export class Merchant {
 
   getWalletLimit(): number {
     return this.props.walletLimit;
+  }
+
+  getDefaultPaymentExpiryMinutes(): number {
+    return this.props.defaultPaymentExpiryMinutes;
   }
 
   getCurrentPin(): PIN | undefined {
@@ -308,6 +319,7 @@ export class Merchant {
     paymentLinkMonthlyLimit?: number;
     tier?: MerchantTier;
     walletLimit?: number;
+    defaultPaymentExpiryMinutes?: number;
   }): void {
     if (this.isSuspended()) {
       throw new ForbiddenError('Cannot update settings for suspended merchant');
@@ -364,6 +376,11 @@ export class Merchant {
       this.props.walletLimit = settings.walletLimit;
     }
 
+    if (settings.defaultPaymentExpiryMinutes !== undefined) {
+      this.validateDefaultExpiry(settings.defaultPaymentExpiryMinutes);
+      this.props.defaultPaymentExpiryMinutes = settings.defaultPaymentExpiryMinutes;
+    }
+
     this.props.updatedAt = new Date();
   }
 
@@ -383,6 +400,13 @@ export class Merchant {
   private validateWalletLimit(limit: number): void {
     if (!Number.isInteger(limit) || limit < 0) {
       throw new ValidationError('Wallet limit must be a non-negative integer');
+    }
+  }
+
+  private validateDefaultExpiry(expiry: number): void {
+    const allowed = [15, 30, 60, 120];
+    if (!allowed.includes(expiry)) {
+      throw new ValidationError('Default payment expiry must be 15, 30, 60, or 120 minutes');
     }
   }
 }

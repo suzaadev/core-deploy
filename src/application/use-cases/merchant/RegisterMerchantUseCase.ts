@@ -1,6 +1,6 @@
 import { IMerchantRepository } from '../../../domain/repositories/IMerchantRepository';
 import { IEmailService } from '../../../infrastructure/services/IEmailService';
-import { Merchant, MerchantProps } from '../../../domain/entities/Merchant';
+import { Merchant, MerchantProps, MerchantTier } from '../../../domain/entities/Merchant';
 import { Email } from '../../../domain/value-objects/Email';
 import { PIN } from '../../../domain/value-objects/PIN';
 import { ConflictError, ValidationError } from '../../../common/errors/AppError';
@@ -62,6 +62,10 @@ export class RegisterMerchantUseCase {
       maxBuyerOrdersPerHour: 1,
       settleTolerancePct: 2.0,
       allowUnsolicitedPayments: true,
+      paymentLinkMonthlyLimit: 100,
+      tier: 'TIER_1' as MerchantTier,
+      walletLimit: 10,
+      defaultPaymentExpiryMinutes: 60,
       currentPin: pin,
       pinExpiresAt,
       pinAttempts: 0,
