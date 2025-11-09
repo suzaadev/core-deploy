@@ -1,4 +1,5 @@
 import { prisma } from '../../infrastructure/database/client';
+import type { PrismaClient } from '@prisma/client';
 
 /**
  * Get current date in YYYYMMDD format for merchant's timezone
@@ -26,10 +27,11 @@ export function getCurrentOrderDate(timezone: string): string {
  */
 export async function getNextOrderNumber(
   merchantId: string,
-  orderDate: string
+  orderDate: string,
+  client: PrismaClient = prisma
 ): Promise<number> {
   // Get highest order number for this merchant on this date
-  const lastOrder = await prisma.paymentRequest.findFirst({
+  const lastOrder = await client.paymentRequest.findFirst({
     where: {
       merchantId,
       orderDate,

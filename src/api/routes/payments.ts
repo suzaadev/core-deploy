@@ -1,8 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { prisma } from '../../infrastructure/database/client';
-import { CoinGeckoPriceService } from '../../infrastructure/pricing/CoinGeckoPriceService';
-import { config } from '../../config';
+import { createPaymentRequest } from '../../application/payments/CreatePaymentRequest';
 
 const router = Router();
 
@@ -89,51 +88,28 @@ router.patch('/requests/:id/settlement', authenticate, async (req: AuthRequest, 
 router.post('/requests', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const { amount, description, expiryMinutes } = req.body;
+    const parsedAmount = Number(amount);
+    const parsedExpiry = Number(expiryMinutes || 60);
 
-    if (!amount || amount <= 0) {
+    if (!parsedAmount || parsedAmount <= 0) {
       return res.status(400).json({ error: 'Valid amount is required' });
     }
 
-    const expiry = expiryMinutes || 60;
-    const today = new Date();
-    const dateStr = today.toISOString().split('T')[0].replace(/-/g, '');
-
-    const lastOrder = await prisma.paymentRequest.findFirst({
-      where: {
-        merchantId: req.merchant!.id,
-        orderDate: dateStr,
-      },
-      orderBy: { orderNumber: 'desc' },
+    const result = await createPaymentRequest({
+      merchantId: req.merchant!.id,
+      amountFiat: parsedAmount,
+      description,
+      expiryMinutes: parsedExpiry,
+      createdBy: 'merchant',
     });
 
-    const nextOrderNumber = lastOrder ? lastOrder.orderNumber + 1 : 1;
-    const linkId = `${req.merchant!.slug}/${dateStr}/${nextOrderNumber.toString().padStart(4, '0')}`;
-    const expiresAt = new Date(Date.now() + expiry * 60 * 1000);
-
-    const paymentRequest = await prisma.paymentRequest.create({
-      data: {
-        merchantId: req.merchant!.id,
-        orderDate: dateStr,
-        orderNumber: nextOrderNumber,
-        linkId,
-        amountFiat: amount,
-        currencyFiat: 'USD',
-        description: description || null,
-        expiryMinutes: expiry,
-        expiresAt,
-        createdBy: 'merchant',
-        status: 'PENDING',
-        settlementStatus: 'PENDING',
-      },
-    });
+    if (!result.success) {
+      return res.status(400).json({ error: result.message });
+    }
 
     return res.status(201).json({
       success: true,
-      data: {
-        ...paymentRequest,
-        amountFiat: parseFloat(paymentRequest.amountFiat.toString()),
-        paymentUrl: `${config.baseUrl}/${linkId}`,
-      },
+      data: result,
     });
   } catch (error) {
     console.error('Create payment request error:', error);

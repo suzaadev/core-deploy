@@ -101,6 +101,9 @@ router.get('/merchants', authenticateAdmin, async (req: AdminRequest, res: Respo
         suspendedAt: true,
         emailVerified: true,
         createdAt: true,
+        paymentLinkMonthlyLimit: true,
+        tier: true,
+        walletLimit: true,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -159,6 +162,64 @@ router.delete('/merchants/:id', authenticateAdmin, async (req: AdminRequest, res
   } catch (error) {
     console.error('Delete merchant error:', error);
     return res.status(500).json({ error: 'Failed to delete merchant' });
+  }
+});
+
+// PATCH /admin/merchants/:id - update tier or monthly link limit
+router.patch('/merchants/:id', authenticateAdmin, async (req: AdminRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { paymentLinkMonthlyLimit, tier, walletLimit } = req.body;
+
+    const updateData: any = {};
+
+    if (paymentLinkMonthlyLimit !== undefined) {
+      if (!Number.isInteger(paymentLinkMonthlyLimit) || paymentLinkMonthlyLimit < 0) {
+        return res.status(400).json({ error: 'paymentLinkMonthlyLimit must be a non-negative integer' });
+      }
+      updateData.paymentLinkMonthlyLimit = paymentLinkMonthlyLimit;
+    }
+
+    if (tier !== undefined) {
+      const allowedTiers = ['TIER_1', 'TIER_2', 'TIER_3', 'TIER_4', 'TIER_5'];
+      if (!allowedTiers.includes(tier)) {
+        return res.status(400).json({ error: 'Invalid tier value' });
+      }
+      updateData.tier = tier;
+    }
+
+    if (walletLimit !== undefined) {
+      if (!Number.isInteger(walletLimit) || walletLimit < 0) {
+        return res.status(400).json({ error: 'walletLimit must be a non-negative integer' });
+      }
+      updateData.walletLimit = walletLimit;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: 'No valid fields provided for update' });
+    }
+
+    const merchant = await prisma.merchant.update({
+      where: { id },
+      data: updateData,
+      select: {
+        id: true,
+        email: true,
+        businessName: true,
+        slug: true,
+        suspendedAt: true,
+        emailVerified: true,
+        createdAt: true,
+        paymentLinkMonthlyLimit: true,
+        tier: true,
+        walletLimit: true,
+      },
+    });
+
+    return res.json({ success: true, data: merchant });
+  } catch (error) {
+    console.error('Update merchant tier/limit error:', error);
+    return res.status(500).json({ error: 'Failed to update merchant' });
   }
 });
 

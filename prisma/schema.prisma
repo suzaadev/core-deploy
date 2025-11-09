@@ -12,6 +12,15 @@ enum SettlementStatus {
   @@schema("payments")
 }
 
+enum MerchantTier {
+  TIER_1
+  TIER_2
+  TIER_3
+  TIER_4
+  TIER_5
+  @@schema("core")
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -47,6 +56,9 @@ model Merchant {
   maxBuyerOrdersPerHour    Int       @default(1)
   settleTolerancePct       Decimal   @default(2.0) @db.Decimal(5, 2)
   allowUnsolicitedPayments Boolean   @default(true)
+  paymentLinkMonthlyLimit  Int       @default(100)
+  tier                     MerchantTier @default(TIER_1)
+  walletLimit              Int       @default(10)
   currentPin               String?   @db.VarChar(60)
   pinExpiresAt             DateTime?
   pinAttempts              Int       @default(0)

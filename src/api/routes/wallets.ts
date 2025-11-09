@@ -43,6 +43,27 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
       });
     }
 
+    const merchant = await prisma.merchant.findUnique({
+      where: { id: req.merchant!.id },
+      select: { walletLimit: true },
+    });
+
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+
+    if (merchant.walletLimit > 0) {
+      const walletCount = await prisma.wallet.count({
+        where: { merchantId: req.merchant!.id },
+      });
+
+      if (walletCount >= merchant.walletLimit) {
+        return res.status(400).json({
+          error: `Wallet limit reached. This merchant can have up to ${merchant.walletLimit} wallet(s).`,
+        });
+      }
+    }
+
     // Check if wallet already exists
     const existing = await prisma.wallet.findFirst({
       where: {

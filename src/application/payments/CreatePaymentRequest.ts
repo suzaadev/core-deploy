@@ -2,6 +2,17 @@ import { prisma } from '../../infrastructure/database/client';
 import { config } from '../../config';
 import { getCurrentOrderDate, getNextOrderNumber, generateLinkId } from '../../domain/utils/orderNumber';
 import { canBuyerCreateOrder, recordBuyerOrder } from '../../domain/utils/buyerRateLimit';
+import { DateTime } from 'luxon';
+import { Prisma } from '@prisma/client';
+
+class MonthlyLimitExceededError extends Error {
+  limit: number;
+
+  constructor(limit: number) {
+    super('MONTHLY_LINK_LIMIT_REACHED');
+    this.limit = limit;
+  }
+}
 
 interface CreatePaymentRequestInput {
   merchantId: string;
@@ -53,6 +64,7 @@ export async function createPaymentRequest(
       defaultCurrency: true,
       maxBuyerOrdersPerHour: true,
       suspendedAt: true,
+      paymentLinkMonthlyLimit: true,
     },
   });
 
@@ -79,46 +91,76 @@ export async function createPaymentRequest(
     }
   }
 
-  try {
-    const orderDate = getCurrentOrderDate(merchant.timezone);
-    const orderNumber = await getNextOrderNumber(merchantId, orderDate);
-    const linkId = generateLinkId(merchant.slug, orderDate, orderNumber);
-    const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000);
+  const timezone = merchant.timezone || 'UTC';
+  const nowInZone = DateTime.now().setZone(timezone);
+  const monthStartUtc = nowInZone.startOf('month').toUTC();
+  const nextMonthStartUtc = monthStartUtc.plus({ months: 1 });
 
-    const paymentRequest = await prisma.paymentRequest.create({
-      data: {
-        merchantId,
-        orderDate,
-        orderNumber,
-        linkId,
-        amountFiat,
-        currencyFiat: merchant.defaultCurrency,
-        description,
-        expiryMinutes,
-        expiresAt,
-        createdBy,
-        createdByIp: buyerIp,
-        buyerNote,
-        status: 'PENDING',
+  try {
+    const { paymentRequest, linkId, expiresAt } = await prisma.$transaction(
+      async (tx) => {
+        if (merchant.paymentLinkMonthlyLimit > 0) {
+          const monthlyCount = await tx.paymentRequest.count({
+            where: {
+              merchantId,
+              createdAt: {
+                gte: monthStartUtc.toJSDate(),
+                lt: nextMonthStartUtc.toJSDate(),
+              },
+            },
+          });
+
+          if (monthlyCount >= merchant.paymentLinkMonthlyLimit) {
+            throw new MonthlyLimitExceededError(merchant.paymentLinkMonthlyLimit);
+          }
+        }
+
+        const orderDate = getCurrentOrderDate(merchant.timezone);
+        const orderNumber = await getNextOrderNumber(merchantId, orderDate, tx);
+        const linkId = generateLinkId(merchant.slug, orderDate, orderNumber);
+        const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000);
+
+        const paymentRequest = await tx.paymentRequest.create({
+          data: {
+            merchantId,
+            orderDate,
+            orderNumber,
+            linkId,
+            amountFiat,
+            currencyFiat: merchant.defaultCurrency,
+            description,
+            expiryMinutes,
+            expiresAt,
+            createdBy,
+            createdByIp: buyerIp,
+            buyerNote,
+            status: 'PENDING',
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            merchantId,
+            action: 'PAYMENT_REQUEST_CREATED',
+            resourceId: paymentRequest.id,
+            payload: {
+              linkId,
+              createdBy,
+              amountFiat,
+            },
+          },
+        });
+
+        return { paymentRequest, linkId, expiresAt };
       },
-    });
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      }
+    );
 
     if (createdBy === 'buyer' && buyerIp) {
       await recordBuyerOrder(merchantId, buyerIp);
     }
-
-    await prisma.auditLog.create({
-      data: {
-        merchantId,
-        action: 'PAYMENT_REQUEST_CREATED',
-        resourceId: paymentRequest.id,
-        payload: {
-          linkId,
-          createdBy,
-          amountFiat,
-        },
-      },
-    });
 
     const paymentUrl = `${config.baseUrl}/${linkId}`;
 
@@ -131,14 +173,21 @@ export async function createPaymentRequest(
       message: 'Payment request created successfully',
     };
   } catch (error: any) {
-    console.error('Create payment request error:', error);
-    
-    if (error.code === 'P2002') {
+    if (error instanceof MonthlyLimitExceededError) {
+      return {
+        success: false,
+        message: `Monthly payment link limit reached. This merchant is allowed ${error.limit} link(s) per month.`,
+      };
+    }
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return {
         success: false,
         message: 'Order number conflict. Please try again.',
       };
     }
+
+    console.error('Create payment request error:', error);
 
     return {
       success: false,

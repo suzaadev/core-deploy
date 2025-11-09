@@ -3,6 +3,7 @@ import { prisma } from '../../infrastructure/database/client';
 import { CoinGeckoPriceService } from '../../infrastructure/pricing/CoinGeckoPriceService';
 import { redis } from '../../infrastructure/cache/redis';
 import { config } from '../../config';
+import { createPaymentRequest } from '../../application/payments/CreatePaymentRequest';
 
 const router = Router();
 
@@ -123,37 +124,18 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       });
     }
 
-    const today = new Date();
-    const dateStr = today.toISOString().split('T')[0].replace(/-/g, '');
-
-    const lastOrder = await prisma.paymentRequest.findFirst({
-      where: {
-        merchantId: merchant.id,
-        orderDate: dateStr,
-      },
-      orderBy: { orderNumber: 'desc' },
+    const result = await createPaymentRequest({
+      merchantId: merchant.id,
+      amountFiat: parsedAmount,
+      description,
+      expiryMinutes: 60,
+      createdBy: 'buyer',
+      buyerIp: clientIp,
     });
 
-    const nextOrderNumber = lastOrder ? lastOrder.orderNumber + 1 : 1;
-    const linkId = `${merchant.slug}/${dateStr}/${nextOrderNumber.toString().padStart(4, '0')}`;
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
-
-    const paymentRequest = await prisma.paymentRequest.create({
-      data: {
-        merchantId: merchant.id,
-        orderDate: dateStr,
-        orderNumber: nextOrderNumber,
-        linkId,
-        amountFiat: parsedAmount,
-        currencyFiat: 'USD',
-        description: description || null,
-        expiryMinutes: 60,
-        expiresAt,
-        createdBy: 'buyer',
-        createdByIp: clientIp,
-        status: 'PENDING',
-      },
-    });
+    if (!result.success) {
+      return res.status(400).json({ error: result.message });
+    }
 
     const ttlSeconds = 3600;
     await incrementRateLimit(merchant.id, clientIp, ttlSeconds);
@@ -161,9 +143,10 @@ router.post('/create-payment', async (req: Request, res: Response) => {
     return res.status(201).json({
       success: true,
       data: {
-        linkId: paymentRequest.linkId,
-        orderNumber: nextOrderNumber.toString().padStart(4, '0'),
-        paymentUrl: `${config.baseUrl}/${linkId}`,
+        linkId: result.linkId,
+        paymentUrl: result.paymentUrl,
+        expiresAt: result.expiresAt,
+        orderNumber: result.linkId?.split('/').pop(),
       },
     });
   } catch (error) {

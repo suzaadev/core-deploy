@@ -14,6 +14,9 @@ export interface MerchantProps {
   maxBuyerOrdersPerHour: number;
   settleTolerancePct: number;
   allowUnsolicitedPayments: boolean;
+  paymentLinkMonthlyLimit: number;
+  tier: MerchantTier;
+  walletLimit: number;
   currentPin?: PIN;
   pinExpiresAt?: Date;
   pinAttempts: number;
@@ -37,6 +40,9 @@ export class Merchant {
   private domainEvents: DomainEvent[] = [];
 
   private constructor(props: MerchantProps) {
+    this.validateTier(props.tier);
+    this.validateMonthlyLimit(props.paymentLinkMonthlyLimit);
+    this.validateWalletLimit(props.walletLimit);
     this.props = props;
   }
 
@@ -48,6 +54,14 @@ export class Merchant {
 
     if (props.maxBuyerOrdersPerHour < 1 || props.maxBuyerOrdersPerHour > 100) {
       throw new ValidationError('Max buyer orders per hour must be between 1 and 100');
+    }
+
+    if (props.paymentLinkMonthlyLimit < 0) {
+      throw new ValidationError('Payment link monthly limit cannot be negative');
+    }
+
+    if (props.walletLimit < 0) {
+      throw new ValidationError('Wallet limit cannot be negative');
     }
 
     return new Merchant(props);
@@ -88,6 +102,18 @@ export class Merchant {
 
   getAllowUnsolicitedPayments(): boolean {
     return this.props.allowUnsolicitedPayments;
+  }
+
+  getPaymentLinkMonthlyLimit(): number {
+    return this.props.paymentLinkMonthlyLimit;
+  }
+
+  getTier(): MerchantTier {
+    return this.props.tier;
+  }
+
+  getWalletLimit(): number {
+    return this.props.walletLimit;
   }
 
   getCurrentPin(): PIN | undefined {
@@ -279,6 +305,9 @@ export class Merchant {
     maxBuyerOrdersPerHour?: number;
     settleTolerancePct?: number;
     allowUnsolicitedPayments?: boolean;
+    paymentLinkMonthlyLimit?: number;
+    tier?: MerchantTier;
+    walletLimit?: number;
   }): void {
     if (this.isSuspended()) {
       throw new ForbiddenError('Cannot update settings for suspended merchant');
@@ -320,6 +349,42 @@ export class Merchant {
       this.props.allowUnsolicitedPayments = settings.allowUnsolicitedPayments;
     }
 
+    if (settings.paymentLinkMonthlyLimit !== undefined) {
+      this.validateMonthlyLimit(settings.paymentLinkMonthlyLimit);
+      this.props.paymentLinkMonthlyLimit = settings.paymentLinkMonthlyLimit;
+    }
+
+    if (settings.tier !== undefined) {
+      this.validateTier(settings.tier);
+      this.props.tier = settings.tier;
+    }
+
+    if (settings.walletLimit !== undefined) {
+      this.validateWalletLimit(settings.walletLimit);
+      this.props.walletLimit = settings.walletLimit;
+    }
+
     this.props.updatedAt = new Date();
   }
+
+  private validateTier(tier: MerchantTier): void {
+    const allowed: MerchantTier[] = ['TIER_1', 'TIER_2', 'TIER_3', 'TIER_4', 'TIER_5'];
+    if (!allowed.includes(tier)) {
+      throw new ValidationError('Invalid merchant tier');
+    }
+  }
+
+  private validateMonthlyLimit(limit: number): void {
+    if (!Number.isInteger(limit) || limit < 0) {
+      throw new ValidationError('Payment link monthly limit must be a non-negative integer');
+    }
+  }
+
+  private validateWalletLimit(limit: number): void {
+    if (!Number.isInteger(limit) || limit < 0) {
+      throw new ValidationError('Wallet limit must be a non-negative integer');
+    }
+  }
 }
+
+export type MerchantTier = 'TIER_1' | 'TIER_2' | 'TIER_3' | 'TIER_4' | 'TIER_5';
