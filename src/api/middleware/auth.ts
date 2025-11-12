@@ -1,14 +1,19 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { config } from '../../config';
 import { prisma } from '../../infrastructure/database/client';
 import { UnauthorizedError, ForbiddenError } from '../../common/errors/AppError';
 import { logger } from '../../common/logger';
+import { validateSupabaseToken } from '../../infrastructure/supabase/client';
+import { normalizeEmail } from '../../domain/utils/auth';
 
 /**
  * Extended Request interface with authenticated merchant
  */
 export interface AuthRequest extends Request {
+  authUser?: {
+    id: string;
+    email?: string;
+    role?: string | string[];
+  };
   merchant?: {
     id: string;
     slug: string;
@@ -17,21 +22,6 @@ export interface AuthRequest extends Request {
   };
 }
 
-/**
- * JWT payload interface
- */
-interface JWTPayload {
-  merchantId: string;
-  slug: string;
-  email: string;
-  iat?: number;
-  exp?: number;
-}
-
-/**
- * Middleware to authenticate merchant requests using JWT
- * Validates token, checks merchant exists and is not suspended
- */
 export async function authenticate(
   req: AuthRequest,
   res: Response,
@@ -47,16 +37,26 @@ export async function authenticate(
 
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
-    // Verify JWT token
-    const decoded = jwt.verify(
-      token,
-      config.security.jwtSecret
-    ) as JWTPayload;
+    const supabaseUser = await validateSupabaseToken(token);
+    if (!supabaseUser) {
+      throw new UnauthorizedError('Invalid authentication token');
+    }
+
+    const authUserId = supabaseUser.id;
+    console.log('✅ NEW CODE: Supabase user validated! ID:', authUserId, 'Email:', supabaseUser.email);
+
+    req.authUser = {
+      id: authUserId,
+      email: supabaseUser.email ?? undefined,
+      role: supabaseUser.role ?? undefined,
+    };
 
     // Fetch merchant from database and verify status
-    const merchant = await prisma.merchant.findUnique({
-      where: { id: decoded.merchantId },
+    console.log('🔍 AUTH DEBUG: Querying Prisma...');
+    let merchant = await prisma.merchant.findUnique({
+      where: { authUserId },
       select: {
+        authUserId: true,
         id: true,
         slug: true,
         email: true,
@@ -67,15 +67,41 @@ export async function authenticate(
       },
     });
 
-    if (!merchant) {
-      logger.warn('Invalid token used - merchant not found', {
-        merchantId: decoded.merchantId,
-        ip: req.ip,
+    if (!merchant && supabaseUser.email) {
+      const normalizedEmail = normalizeEmail(supabaseUser.email);
+      const legacyMerchant = await prisma.merchant.findUnique({
+        where: { email: normalizedEmail },
+        select: {
+          id: true,
+          slug: true,
+          email: true,
+          businessName: true,
+          suspendedAt: true,
+          suspendedBy: true,
+          suspendedReason: true,
+        },
       });
-      throw new UnauthorizedError('Invalid authentication token');
+
+      if (legacyMerchant) {
+        merchant = await prisma.merchant.update({
+          where: { id: legacyMerchant.id },
+          data: { authUserId },
+          select: {
+            authUserId: true,
+            id: true,
+            slug: true,
+            email: true,
+            businessName: true,
+            suspendedAt: true,
+            suspendedBy: true,
+            suspendedReason: true,
+          },
+        });
+      }
     }
 
-    if (merchant.suspendedAt) {
+    console.log('🔍 AUTH DEBUG: Merchant result:', merchant ? 'FOUND' : 'NOT FOUND', merchant);
+    if (merchant && merchant.suspendedAt) {
       logger.warn('Suspended merchant attempted access', {
         merchantId: merchant.id,
         email: merchant.email,
@@ -88,31 +114,30 @@ export async function authenticate(
       );
     }
 
-    // Attach merchant info to request
-    req.merchant = {
-      id: merchant.id,
-      slug: merchant.slug,
-      email: merchant.email,
-      businessName: merchant.businessName,
-    };
+    if (merchant) {
+      // Attach merchant info to request
+      req.merchant = {
+        id: merchant.id,
+        slug: merchant.slug,
+        email: merchant.email,
+        businessName: merchant.businessName,
+      };
 
-    logger.debug('Merchant authenticated successfully', {
-      merchantId: merchant.id,
-      email: merchant.email,
-    });
+      logger.debug('Merchant authenticated successfully', {
+        merchantId: merchant.id,
+        email: merchant.email,
+      });
+    } else {
+      req.merchant = undefined;
+      logger.debug('Authenticated Supabase user without merchant profile', {
+        authUserId,
+        email: supabaseUser.email ?? undefined,
+      });
+    }
 
     next();
   } catch (error) {
-    // Pass JWT errors to error handler
-    if (error instanceof jwt.JsonWebTokenError) {
-      logger.warn('Invalid JWT token', { error: error.message, ip: req.ip });
-      next(new UnauthorizedError('Invalid authentication token'));
-    } else if (error instanceof jwt.TokenExpiredError) {
-      logger.warn('Expired JWT token', { expiredAt: error.expiredAt, ip: req.ip });
-      next(new UnauthorizedError('Authentication token has expired'));
-    } else {
-      next(error);
-    }
+    next(error);
   }
 }
 
@@ -134,13 +159,21 @@ export async function optionalAuthenticate(
 
     const token = authHeader.substring(7);
 
-    const decoded = jwt.verify(
-      token,
-      config.security.jwtSecret
-    ) as JWTPayload;
+    const supabaseUser = await validateSupabaseToken(token);
+    if (!supabaseUser) {
+      return next();
+    }
 
-    const merchant = await prisma.merchant.findUnique({
-      where: { id: decoded.merchantId },
+    req.authUser = {
+      id: supabaseUser.id,
+      email: supabaseUser.email ?? undefined,
+      role: supabaseUser.role ?? undefined,
+    };
+
+    const normalizedEmail = supabaseUser.email ? normalizeEmail(supabaseUser.email) : null;
+
+    let merchant = await prisma.merchant.findUnique({
+      where: { authUserId: supabaseUser.id },
       select: {
         id: true,
         slug: true,
@@ -149,6 +182,33 @@ export async function optionalAuthenticate(
         suspendedAt: true,
       },
     });
+
+    if (!merchant && normalizedEmail) {
+      const legacyMerchant = await prisma.merchant.findUnique({
+        where: { email: normalizedEmail },
+        select: {
+          id: true,
+          slug: true,
+          email: true,
+          businessName: true,
+          suspendedAt: true,
+        },
+      });
+
+      if (legacyMerchant) {
+        merchant = await prisma.merchant.update({
+          where: { id: legacyMerchant.id },
+          data: { authUserId: supabaseUser.id },
+          select: {
+            id: true,
+            slug: true,
+            email: true,
+            businessName: true,
+            suspendedAt: true,
+          },
+        });
+      }
+    }
 
     if (merchant && !merchant.suspendedAt) {
       req.merchant = {

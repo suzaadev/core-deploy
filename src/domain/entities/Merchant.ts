@@ -7,6 +7,7 @@ import { ForbiddenError, ValidationError } from '../../common/errors/AppError';
 export interface MerchantProps {
   id: string;
   slug: string;
+  authUserId: string;
   email: Email;
   businessName: string;
   defaultCurrency: string;
@@ -81,6 +82,10 @@ export class Merchant {
 
   getSlug(): string {
     return this.props.slug;
+  }
+
+  getAuthUserId(): string {
+    return this.props.authUserId;
   }
 
   getEmail(): Email {

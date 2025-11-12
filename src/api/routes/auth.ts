@@ -1,131 +1,184 @@
-import { Router, Request, Response } from 'express';
-import { registerMerchant } from '../../application/auth/RegisterMerchant';
-import { loginMerchant } from '../../application/auth/LoginMerchant';
-import { verifyPin } from '../../application/auth/VerifyPin';
+import { Router, Response } from 'express';
+import crypto from 'crypto';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { prisma } from '../../infrastructure/database/client';
+import { validate } from '../../common/validation/validator';
+import { authSchemas } from '../../common/validation/schemas';
+import { generateSlug, normalizeEmail } from '../../domain/utils/auth';
+import { logger } from '../../common/logger';
 
 const router = Router();
 
-/**
- * POST /auth/register
- * Register a new merchant
- */
-router.post('/register', async (req: Request, res: Response) => {
-  try {
-    const { email, businessName, defaultCurrency } = req.body;
+const merchantSelect = {
+  id: true,
+  slug: true,
+  email: true,
+  businessName: true,
+  defaultCurrency: true,
+  timezone: true,
+  maxBuyerOrdersPerHour: true,
+  allowUnsolicitedPayments: true,
+  defaultPaymentExpiryMinutes: true,
+  settleTolerancePct: true,
+  emailVerified: true,
+  createdAt: true,
+  updatedAt: true,
+  lastLoginAt: true,
+};
 
-    if (!email || !businessName) {
-      return res.status(400).json({ 
-        error: 'Email and business name are required' 
+async function generateUniqueSlug(): Promise<string> {
+  const maxAttempts = 10;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const candidate = generateSlug().toLowerCase();
+    const existing = await prisma.merchant.findUnique({
+      where: { slug: candidate },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      return candidate;
+    }
+  }
+
+  throw new Error('Failed to generate unique merchant slug');
+}
+
+/**
+ * POST /auth/bootstrap
+ * Create or update merchant profile for authenticated Supabase user
+ */
+router.post(
+  '/bootstrap',
+  authenticate,
+  validate(authSchemas.bootstrap, 'body'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.authUser?.id) {
+        return res.status(401).json({ error: 'Supabase user session required' });
+      }
+
+      if (!req.authUser.email) {
+        return res.status(400).json({ error: 'Supabase user email is missing' });
+      }
+
+      const { businessName, defaultCurrency, timezone } = req.body as {
+        businessName: string;
+        defaultCurrency?: string;
+        timezone?: string;
+      };
+
+      const normalizedEmail = normalizeEmail(req.authUser.email);
+      const currency = (defaultCurrency || 'USD').toUpperCase();
+      const tz = timezone || 'UTC';
+
+      const existingByAuth = await prisma.merchant.findUnique({
+        where: { authUserId: req.authUser.id },
+        select: merchantSelect,
       });
-    }
 
-    const result = await registerMerchant({
-      email,
-      businessName,
-      defaultCurrency,
-    });
+      if (existingByAuth) {
+        const updated = await prisma.merchant.update({
+          where: { id: existingByAuth.id },
+          data: {
+            businessName,
+            defaultCurrency: currency,
+            timezone: tz,
+            email: normalizedEmail,
+            lastLoginAt: new Date(),
+            emailVerified: true,
+          },
+          select: merchantSelect,
+        });
 
-    if (!result.success) {
-      return res.status(400).json({ error: result.message });
-    }
+        return res.json({
+          success: true,
+          created: false,
+          data: updated,
+        });
+      }
 
-    return res.status(201).json({
-      success: true,
-      message: result.message,
-      data: {
-        merchantId: result.merchantId,
-        slug: result.slug,
-      },
-    });
-  } catch (error) {
-    console.error('Register error:', error);
-    return res.status(500).json({ error: 'Registration failed' });
-  }
-});
-
-/**
- * POST /auth/login
- * Request PIN for login
- */
-router.post('/login', async (req: Request, res: Response) => {
-  try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
-    }
-
-    const result = await loginMerchant({ email });
-
-    return res.status(200).json({
-      success: true,
-      message: result.message,
-    });
-  } catch (error) {
-    console.error('Login error:', error);
-    return res.status(500).json({ error: 'Login failed' });
-  }
-});
-
-/**
- * POST /auth/verify
- * Verify PIN and get JWT token
- */
-router.post('/verify', async (req: Request, res: Response) => {
-  try {
-    const { email, pin } = req.body;
-
-    if (!email || !pin) {
-      return res.status(400).json({ 
-        error: 'Email and PIN are required' 
+      const existingByEmail = await prisma.merchant.findUnique({
+        where: { email: normalizedEmail },
+        select: merchantSelect,
       });
+
+      if (existingByEmail) {
+        const updated = await prisma.merchant.update({
+          where: { id: existingByEmail.id },
+          data: {
+            authUserId: req.authUser.id,
+            businessName,
+            defaultCurrency: currency,
+            timezone: tz,
+            email: normalizedEmail,
+            lastLoginAt: new Date(),
+            emailVerified: true,
+          },
+          select: merchantSelect,
+        });
+
+        return res.json({
+          success: true,
+          created: false,
+          data: updated,
+        });
+      }
+
+      const slug = await generateUniqueSlug();
+
+      const created = await prisma.merchant.create({
+        data: {
+          id: crypto.randomUUID(),
+          authUserId: req.authUser.id,
+          slug,
+          email: normalizedEmail,
+          businessName,
+          defaultCurrency: currency,
+          timezone: tz,
+          webhookSecret: crypto.randomUUID(),
+          emailVerified: true,
+          lastLoginAt: new Date(),
+        },
+        select: merchantSelect,
+      });
+
+      return res.status(201).json({
+        success: true,
+        created: true,
+        data: created,
+      });
+    } catch (error) {
+      logger.error('Bootstrap merchant profile failed', {
+        error,
+        authUserId: req.authUser?.id,
+      });
+      return res.status(500).json({ error: 'Failed to bootstrap merchant profile' });
     }
-
-    const result = await verifyPin({ email, pin });
-
-    if (!result.success) {
-      return res.status(401).json({ error: result.message });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: result.message,
-      data: {
-        token: result.token,
-        merchant: result.merchant,
-      },
-    });
-  } catch (error) {
-    console.error('Verify error:', error);
-    return res.status(500).json({ error: 'Verification failed' });
-  }
-});
+  },
+);
 
 /**
  * GET /auth/me
- * Get current merchant info (protected)
+ * Get current merchant profile (protected)
  */
 router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.authUser?.id) {
+      return res.status(401).json({ error: 'Supabase user session required' });
+    }
+
+    if (!req.merchant) {
+      return res.status(404).json({ error: 'Merchant profile not found' });
+    }
+
     const merchant = await prisma.merchant.findUnique({
-      where: { id: req.merchant!.id },
-      select: {
-        id: true,
-        slug: true,
-        email: true,
-        businessName: true,
-        defaultCurrency: true,
-        settleTolerancePct: true,
-        emailVerified: true,
-        createdAt: true,
-        lastLoginAt: true,
-      },
+      where: { id: req.merchant.id },
+      select: merchantSelect,
     });
 
     if (!merchant) {
-      return res.status(404).json({ error: 'Merchant not found' });
+      return res.status(404).json({ error: 'Merchant profile not found' });
     }
 
     return res.status(200).json({
@@ -133,8 +186,11 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
       data: merchant,
     });
   } catch (error) {
-    console.error('Get merchant error:', error);
-    return res.status(500).json({ error: 'Failed to fetch merchant info' });
+    logger.error('Fetch merchant profile failed', {
+      error,
+      authUserId: req.authUser?.id,
+    });
+    return res.status(500).json({ error: 'Failed to fetch merchant profile' });
   }
 });
 

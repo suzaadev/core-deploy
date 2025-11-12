@@ -22,6 +22,11 @@ export interface IMerchantRepository {
   findBySlug(slug: string): Promise<Merchant | null>;
 
   /**
+   * Find merchant by Supabase auth user id
+   */
+  findByAuthUserId(authUserId: string): Promise<Merchant | null>;
+
+  /**
    * Find merchant by API key hash
    */
   findByApiKeyHash(apiKeyHash: string): Promise<Merchant | null>;

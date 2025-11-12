@@ -92,11 +92,11 @@ export const config = {
     minExpiryMinutes: parseInt(process.env.PAYMENT_MIN_EXPIRY || '5', 10),
   },
 
-  // Email (for future implementation)
+  // Email
   email: {
     enabled: process.env.EMAIL_ENABLED === 'true',
-    from: process.env.EMAIL_FROM || 'noreply@suzaa.com',
-    // SMTP settings would go here
+    sendgridApiKey: process.env.SENDGRID_API_KEY || '',
+    fromAddress: process.env.EMAIL_FROM || 'noreply@suzaa.com',
   },
 
   // Logging

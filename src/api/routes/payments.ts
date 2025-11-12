@@ -8,8 +8,12 @@ const router = Router();
 // Get all payment requests for merchant
 router.get('/requests', authenticate, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.merchant) {
+      return res.status(404).json({ error: 'Merchant profile not found' });
+    }
+
     const paymentRequests = await prisma.paymentRequest.findMany({
-      where: { merchantId: req.merchant!.id },
+      where: { merchantId: req.merchant.id },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -49,6 +53,10 @@ router.get('/requests', authenticate, async (req: AuthRequest, res: Response) =>
 // Update settlement status
 router.patch('/requests/:id/settlement', authenticate, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.merchant) {
+      return res.status(404).json({ error: 'Merchant profile not found' });
+    }
+
     const { id } = req.params;
     const { settlementStatus } = req.body;
 
@@ -61,7 +69,7 @@ router.patch('/requests/:id/settlement', authenticate, async (req: AuthRequest, 
       select: { merchantId: true },
     });
 
-    if (!paymentRequest || paymentRequest.merchantId !== req.merchant!.id) {
+    if (!paymentRequest || paymentRequest.merchantId !== req.merchant.id) {
       return res.status(404).json({ error: 'Payment request not found' });
     }
 
@@ -87,6 +95,10 @@ router.patch('/requests/:id/settlement', authenticate, async (req: AuthRequest, 
 // Create payment request (existing endpoint)
 router.post('/requests', authenticate, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.merchant) {
+      return res.status(404).json({ error: 'Merchant profile not found' });
+    }
+
     const { amount, description, expiryMinutes } = req.body;
     const parsedAmount = Number(amount);
     const parsedExpiry = Number(expiryMinutes || 60);
@@ -96,7 +108,7 @@ router.post('/requests', authenticate, async (req: AuthRequest, res: Response) =
     }
 
     const result = await createPaymentRequest({
-      merchantId: req.merchant!.id,
+      merchantId: req.merchant.id,
       amountFiat: parsedAmount,
       description,
       expiryMinutes: parsedExpiry,

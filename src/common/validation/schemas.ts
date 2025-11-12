@@ -106,6 +106,24 @@ export const authSchemas = {
     email: commonSchemas.email,
     pin: commonSchemas.pin,
   }),
+
+  bootstrap: Joi.object({
+    businessName: commonSchemas.businessName,
+    defaultCurrency: Joi.string()
+      .length(3)
+      .uppercase()
+      .default('USD')
+      .messages({
+        'string.length': 'defaultCurrency must be a 3-letter ISO code',
+      }),
+    timezone: Joi.string()
+      .max(100)
+      .trim()
+      .default('UTC')
+      .messages({
+        'string.max': 'Timezone cannot exceed 100 characters',
+      }),
+  }),
 };
 
 /**

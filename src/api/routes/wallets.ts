@@ -7,8 +7,12 @@ const router = Router();
 // Get all wallets for merchant
 router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.merchant) {
+      return res.status(404).json({ error: 'Merchant profile not found' });
+    }
+
     const wallets = await prisma.wallet.findMany({
-      where: { merchantId: req.merchant!.id },
+      where: { merchantId: req.merchant.id },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -25,6 +29,10 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
 // Add new wallet
 router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.merchant) {
+      return res.status(404).json({ error: 'Merchant profile not found' });
+    }
+
     const { 
       network, 
       tokenSymbol, 
@@ -44,7 +52,7 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
     }
 
     const merchant = await prisma.merchant.findUnique({
-      where: { id: req.merchant!.id },
+      where: { id: req.merchant.id },
       select: { walletLimit: true },
     });
 
@@ -54,7 +62,7 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
 
     if (merchant.walletLimit > 0) {
       const walletCount = await prisma.wallet.count({
-        where: { merchantId: req.merchant!.id },
+        where: { merchantId: req.merchant.id },
       });
 
       if (walletCount >= merchant.walletLimit) {
@@ -67,7 +75,7 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
     // Check if wallet already exists
     const existing = await prisma.wallet.findFirst({
       where: {
-        merchantId: req.merchant!.id,
+        merchantId: req.merchant.id,
         network: network.toUpperCase(),
         tokenSymbol: tokenSymbol.toUpperCase(),
         walletAddress,
@@ -88,7 +96,7 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
 
     const wallet = await prisma.wallet.create({
       data: {
-        merchantId: req.merchant!.id,
+        merchantId: req.merchant.id,
         network: network.toUpperCase(),
         tokenSymbol: tokenSymbol.toUpperCase(),
         tokenName: tokenName || null,
@@ -114,6 +122,10 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
 // Update wallet (toggle enabled or change label)
 router.patch('/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.merchant) {
+      return res.status(404).json({ error: 'Merchant profile not found' });
+    }
+
     const { id } = req.params;
     const { enabled, label } = req.body;
 
@@ -121,7 +133,7 @@ router.patch('/:id', authenticate, async (req: AuthRequest, res: Response) => {
     const wallet = await prisma.wallet.findFirst({
       where: {
         id,
-        merchantId: req.merchant!.id,
+        merchantId: req.merchant.id,
       },
     });
 
@@ -150,13 +162,17 @@ router.patch('/:id', authenticate, async (req: AuthRequest, res: Response) => {
 // Delete wallet
 router.delete('/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.merchant) {
+      return res.status(404).json({ error: 'Merchant profile not found' });
+    }
+
     const { id } = req.params;
 
     // Verify wallet belongs to merchant
     const wallet = await prisma.wallet.findFirst({
       where: {
         id,
-        merchantId: req.merchant!.id,
+        merchantId: req.merchant.id,
       },
     });
 

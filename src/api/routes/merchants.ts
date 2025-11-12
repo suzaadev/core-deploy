@@ -8,8 +8,12 @@ const router = Router();
 // Merchant self-service endpoints (authenticated as merchant)
 router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.merchant) {
+      return res.status(404).json({ error: 'Merchant profile not found' });
+    }
+
     const merchant = await prisma.merchant.findUnique({
-      where: { id: req.merchant!.id },
+      where: { id: req.merchant.id },
       select: {
         id: true,
         slug: true,
@@ -41,6 +45,10 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
 
 router.patch('/me', authenticate, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.merchant) {
+      return res.status(404).json({ error: 'Merchant profile not found' });
+    }
+
     const { allowUnsolicitedPayments, maxBuyerOrdersPerHour, defaultCurrency, timezone, defaultPaymentExpiryMinutes } = req.body;
 
     const updates: any = {};
@@ -70,7 +78,7 @@ router.patch('/me', authenticate, async (req: AuthRequest, res: Response) => {
     }
 
     const merchant = await prisma.merchant.update({
-      where: { id: req.merchant!.id },
+      where: { id: req.merchant.id },
       data: updates,
       select: {
         id: true,

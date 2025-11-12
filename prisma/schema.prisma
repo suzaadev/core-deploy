@@ -49,6 +49,7 @@ model SuperAdmin {
 model Merchant {
   id                       String    @id @default(uuid()) @db.Uuid
   slug                     String    @unique @db.VarChar(60)
+  authUserId               String    @unique @db.Uuid
   email                    String    @unique @db.VarChar(255)
   businessName             String    @db.VarChar(100)
   defaultCurrency          String    @default("USD") @db.VarChar(3)

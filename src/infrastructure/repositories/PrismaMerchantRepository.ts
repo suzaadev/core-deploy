@@ -48,6 +48,18 @@ export class PrismaMerchantRepository implements IMerchantRepository {
     return this.toDomain(data);
   }
 
+  async findByAuthUserId(authUserId: string): Promise<Merchant | null> {
+    const data = await this.prisma.merchant.findUnique({
+      where: { authUserId },
+    });
+
+    if (!data) {
+      return null;
+    }
+
+    return this.toDomain(data);
+  }
+
   async findByApiKeyHash(apiKeyHash: string): Promise<Merchant | null> {
     const data = await this.prisma.merchant.findUnique({
       where: { apiKeyHash },
@@ -127,6 +139,7 @@ export class PrismaMerchantRepository implements IMerchantRepository {
     const props: MerchantProps = {
       id: data.id,
       slug: data.slug,
+      authUserId: data.authUserId,
       email: Email.create(data.email),
       businessName: data.businessName,
       defaultCurrency: data.defaultCurrency,
@@ -162,6 +175,7 @@ export class PrismaMerchantRepository implements IMerchantRepository {
     return {
       id: merchant.getId(),
       slug: merchant.getSlug(),
+      authUserId: merchant.getAuthUserId(),
       email: merchant.getEmail().getValue(),
       businessName: merchant.getBusinessName(),
       defaultCurrency: merchant.getDefaultCurrency(),

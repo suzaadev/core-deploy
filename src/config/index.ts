@@ -12,6 +12,8 @@ function validateEnv(): void {
     'JWT_SECRET',
     'API_KEY_SALT',
     'PLUGIN_HMAC_SECRET',
+    'SUPABASE_URL',
+    'SUPABASE_SERVICE_ROLE_KEY',
   ];
 
   const missing = required.filter((key) => !process.env[key]);
@@ -102,6 +104,12 @@ export const config = {
   // Logging
   logging: {
     level: process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug'),
+  },
+  // Supabase
+  supabase: {
+    url: process.env.SUPABASE_URL!,
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    anonKey: process.env.SUPABASE_ANON_KEY || '',
   },
 } as const;
 

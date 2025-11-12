@@ -10,6 +10,7 @@ import crypto from 'crypto';
 export interface RegisterMerchantInput {
   email: string;
   businessName: string;
+  authUserId?: string;
 }
 
 export interface RegisterMerchantOutput {
@@ -47,6 +48,8 @@ export class RegisterMerchantUseCase {
     // Generate unique slug
     const slug = await this.generateUniqueSlug();
 
+    const authUserId = input.authUserId ?? crypto.randomUUID();
+
     // Generate PIN
     const { pin, plaintext: plaintextPin } = await PIN.generate(config.pin.length);
     const pinExpiresAt = new Date(Date.now() + config.pin.expiryMinutes * 60 * 1000);
@@ -55,6 +58,7 @@ export class RegisterMerchantUseCase {
     const merchantProps: MerchantProps = {
       id: crypto.randomUUID(),
       slug,
+      authUserId,
       email,
       businessName: input.businessName.trim(),
       defaultCurrency: 'USD',
