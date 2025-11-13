@@ -1,40 +1,22 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { config } from '../../config';
+import { validateAdminSupabaseToken } from '../../infrastructure/supabase/adminClient';
 import { prisma } from '../../infrastructure/database/client';
-import { UnauthorizedError, ForbiddenError } from '../../common/errors/AppError';
 import { logger } from '../../common/logger';
 
-/**
- * Extended Request interface with authenticated admin
- * FIXED: Renamed from AdminAuthRequest to AdminRequest for consistency
- */
 export interface AdminRequest extends Request {
+  authUser?: {
+    id: string;
+    email?: string;
+  };
   admin?: {
     id: string;
     email: string;
+    name: string;
   };
 }
 
 /**
- * JWT payload interface for admin tokens
- */
-interface AdminJWTPayload {
-  adminId: string;
-  email: string;
-  iat?: number;
-  exp?: number;
-}
-
-/**
- * Middleware to authenticate admin requests using JWT
- * Validates token, checks admin exists and is not suspended
- *
- * FIXES:
- * - Removed hardcoded JWT secret fallback
- * - Added suspension check (was missing)
- * - Added proper logging
- * - Consistent error handling
+ * Middleware to authenticate admin requests using ADMIN Supabase JWT
  */
 export async function authenticateAdmin(
   req: AdminRequest,
@@ -42,74 +24,68 @@ export async function authenticateAdmin(
   next: NextFunction
 ): Promise<void> {
   try {
-    // Extract token from Authorization header
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new UnauthorizedError('No authentication token provided');
+      res.status(401).json({ error: 'No authentication token provided' });
+      return;
     }
 
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+    const token = authHeader.substring(7);
 
-    // Verify JWT token using config (no hardcoded fallback)
-    const decoded = jwt.verify(
-      token,
-      config.security.jwtSecret
-    ) as AdminJWTPayload;
+    // Validate token via ADMIN Supabase (separate project)
+    const supabaseUser = await validateAdminSupabaseToken(token);
+    
+    if (!supabaseUser) {
+      logger.warn('Invalid admin Supabase token');
+      res.status(401).json({ error: 'Invalid authentication token' });
+      return;
+    }
 
-    // Fetch admin from database and verify status
+    const authUserId = supabaseUser.id;
+
+    req.authUser = {
+      id: authUserId,
+      email: supabaseUser.email ?? undefined,
+    };
+
+    // Fetch admin from database
     const admin = await prisma.superAdmin.findUnique({
-      where: { id: decoded.adminId },
+      where: { authUserId },
       select: {
         id: true,
         email: true,
-        suspendedAt: true, // FIXED: Added suspension check
+        name: true,
+        suspendedAt: true,
       },
     });
 
-    if (!admin) {
-      logger.warn('Invalid admin token used - admin not found', {
-        adminId: decoded.adminId,
-        ip: req.ip,
-      });
-      throw new UnauthorizedError('Invalid authentication token');
-    }
-
-    // FIXED: Check if admin is suspended
-    if (admin.suspendedAt) {
+    if (admin && admin.suspendedAt) {
       logger.warn('Suspended admin attempted access', {
         adminId: admin.id,
         email: admin.email,
-        suspendedAt: admin.suspendedAt,
-        ip: req.ip,
       });
-      throw new ForbiddenError(
-        'Admin account has been suspended. Please contact system administrator.'
-      );
+      res.status(403).json({ error: 'Account has been suspended' });
+      return;
     }
 
-    // Attach admin info to request
-    req.admin = {
-      id: admin.id,
-      email: admin.email,
-    };
-
-    logger.debug('Admin authenticated successfully', {
-      adminId: admin.id,
-      email: admin.email,
-    });
+    if (admin) {
+      req.admin = {
+        id: admin.id,
+        email: admin.email,
+        name: admin.name,
+      };
+    } else {
+      req.admin = undefined;
+      logger.debug('Authenticated admin Supabase user without admin profile', {
+        authUserId,
+        email: supabaseUser.email,
+      });
+    }
 
     next();
   } catch (error) {
-    // Pass JWT errors to error handler
-    if (error instanceof jwt.JsonWebTokenError) {
-      logger.warn('Invalid admin JWT token', { error: error.message, ip: req.ip });
-      next(new UnauthorizedError('Invalid authentication token'));
-    } else if (error instanceof jwt.TokenExpiredError) {
-      logger.warn('Expired admin JWT token', { expiredAt: error.expiredAt, ip: req.ip });
-      next(new UnauthorizedError('Authentication token has expired'));
-    } else {
-      next(error);
-    }
+    logger.error('Admin authentication failed', { error });
+    res.status(401).json({ error: 'Authentication failed' });
   }
 }
