@@ -50,6 +50,7 @@ model SuperAdmin {
 model Merchant {
   id                       String    @id @default(uuid()) @db.Uuid
   slug                     String    @unique @db.VarChar(60)
+  originalSlug             String?   @db.VarChar(60)
   authUserId               String    @unique @db.Uuid
   email                    String    @unique @db.VarChar(255)
   businessName             String    @db.VarChar(100)
@@ -68,9 +69,10 @@ model Merchant {
   apiKeyHash               String?   @unique @db.VarChar(64)
   webhookSecret            String    @default(uuid()) @db.VarChar(64)
   emailVerified            Boolean   @default(false)
+  phoneNumber              String?   @db.VarChar(20)
   suspendedAt              DateTime?
   suspendedBy              String?   @db.Uuid
-  suspendedReason          String?   @db.Text
+  suspendedReason            String?   @db.Text
   lastLoginAt              DateTime?
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt

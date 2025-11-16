@@ -133,12 +133,52 @@ router.patch('/merchants/:id', authenticateAdmin, async (req: AdminRequest, res:
  */
 router.post('/merchants/:id/suspend', authenticateAdmin, async (req: AdminRequest, res: Response) => {
   try {
+    if (!req.authUser) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
     const { id } = req.params;
-    const merchant = await prisma.merchant.update({
+    const { reason } = req.body || {};
+    
+    const merchant = await prisma.merchant.findUnique({
       where: { id },
-      data: { suspendedAt: new Date() },
     });
-    return res.json({ success: true, data: merchant });
+
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+
+    if (merchant.suspendedAt) {
+      return res.status(400).json({ error: 'Merchant already suspended' });
+    }
+
+    const suspendedByEmail = req.admin?.email || req.authUser.email || 'unknown';
+    const suspendedById = req.admin?.id || req.authUser.id;
+
+    // Update merchant with suspension
+    await prisma.merchant.update({
+      where: { id },
+      data: {
+        suspendedAt: new Date(),
+        suspendedBy: suspendedById,
+        suspendedReason: reason || 'Suspended by admin',
+      },
+    });
+
+    // Create audit log
+    await prisma.auditLog.create({
+      data: {
+        merchantId: id,
+        action: 'MERCHANT_SUSPENDED',
+        resourceId: id,
+        payload: {
+          suspendedBy: suspendedByEmail,
+          reason: reason || 'Suspended by admin',
+        },
+      },
+    });
+
+    return res.json({ success: true, message: 'Merchant suspended successfully' });
   } catch (error) {
     console.error('Suspend merchant error:', error);
     return res.status(500).json({ error: 'Failed to suspend merchant' });
@@ -150,12 +190,49 @@ router.post('/merchants/:id/suspend', authenticateAdmin, async (req: AdminReques
  */
 router.post('/merchants/:id/unsuspend', authenticateAdmin, async (req: AdminRequest, res: Response) => {
   try {
+    if (!req.authUser) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
     const { id } = req.params;
-    const merchant = await prisma.merchant.update({
+    
+    const merchant = await prisma.merchant.findUnique({
       where: { id },
-      data: { suspendedAt: null },
     });
-    return res.json({ success: true, data: merchant });
+
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+
+    if (!merchant.suspendedAt) {
+      return res.status(400).json({ error: 'Merchant is not suspended' });
+    }
+
+    const unsuspendedByEmail = req.admin?.email || req.authUser.email || 'unknown';
+
+    // Update merchant to remove suspension
+    await prisma.merchant.update({
+      where: { id },
+      data: {
+        suspendedAt: null,
+        suspendedBy: null,
+        suspendedReason: null,
+      },
+    });
+
+    // Create audit log
+    await prisma.auditLog.create({
+      data: {
+        merchantId: id,
+        action: 'MERCHANT_UNSUSPENDED',
+        resourceId: id,
+        payload: {
+          unsuspendedBy: unsuspendedByEmail,
+        },
+      },
+    });
+
+    return res.json({ success: true, message: 'Merchant unsuspended successfully' });
   } catch (error) {
     console.error('Unsuspend merchant error:', error);
     return res.status(500).json({ error: 'Failed to unsuspend merchant' });
@@ -168,14 +245,74 @@ router.post('/merchants/:id/unsuspend', authenticateAdmin, async (req: AdminRequ
  */
 router.delete('/merchants/:id', authenticateAdmin, async (req: AdminRequest, res: Response) => {
   try {
+    // Super admin is authenticated via Supabase, req.authUser is set by middleware
+    if (!req.authUser) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
     const { id } = req.params;
+    
+    const merchant = await prisma.merchant.findUnique({
+      where: { id },
+    });
+
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+
+    // Audit log before deletion - use authUser email (from Supabase) or admin email if available
+    const deletedByEmail = req.admin?.email || req.authUser.email || 'unknown';
+    
+    await prisma.auditLog.create({
+      data: {
+        merchantId: id,
+        action: 'MERCHANT_DELETED',
+        resourceId: id,
+        payload: { 
+          deletedBy: deletedByEmail,
+          merchantData: {
+            email: merchant.email,
+            businessName: merchant.businessName,
+            slug: merchant.slug,
+          }
+        },
+      },
+    });
+
+    // Delete related records in correct order to handle foreign key constraints
+    // PaymentIntents must be deleted before PaymentRequests (Restrict constraint)
+    // PaymentRequests must be deleted before Merchant (Restrict constraint)
+    // Wallets, Webhooks will cascade delete automatically
+    
+    // Step 1: Delete PaymentIntents (they block PaymentRequest deletion)
+    await prisma.paymentIntent.deleteMany({
+      where: { merchantId: id },
+    });
+
+    // Step 2: Delete PaymentRequests (they block Merchant deletion)
+    await prisma.paymentRequest.deleteMany({
+      where: { merchantId: id },
+    });
+
+    // Step 3: Delete merchant (cascades to Wallets, Webhooks; sets AuditLogs.merchantId to null)
     await prisma.merchant.delete({
       where: { id },
     });
+
     return res.json({ success: true, message: 'Merchant deleted' });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Delete merchant error:', error);
-    return res.status(500).json({ error: 'Failed to delete merchant' });
+    
+    // Provide more specific error messages
+    if (error.code === 'P2003') {
+      return res.status(400).json({ 
+        error: 'Cannot delete merchant: related records still exist. Please contact support.' 
+      });
+    }
+    
+    return res.status(500).json({ 
+      error: error.message || 'Failed to delete merchant' 
+    });
   }
 });
 

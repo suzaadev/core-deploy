@@ -14,6 +14,7 @@ const merchantSelect = {
   slug: true,
   email: true,
   businessName: true,
+  phoneNumber: true,
   defaultCurrency: true,
   timezone: true,
   maxBuyerOrdersPerHour: true,
@@ -30,7 +31,7 @@ async function generateUniqueSlug(): Promise<string> {
   const maxAttempts = 10;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const candidate = generateSlug().toLowerCase();
+    const candidate = generateSlug();
     const existing = await prisma.merchant.findUnique({
       where: { slug: candidate },
       select: { id: true },

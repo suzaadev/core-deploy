@@ -4,6 +4,7 @@ import { CoinGeckoPriceService } from '../../infrastructure/pricing/CoinGeckoPri
 import { redis } from '../../infrastructure/cache/redis';
 import { config } from '../../config';
 import { createPaymentRequest } from '../../application/payments/CreatePaymentRequest';
+import { normalizeEmail } from '../../domain/utils/auth';
 
 const router = Router();
 
@@ -273,6 +274,61 @@ router.get('/payment/*', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Get payment error:', error);
     return res.status(500).json({ error: 'Failed to fetch payment details' });
+  }
+});
+
+/**
+ * POST /public/check-merchant-status
+ * Check if a merchant email is suspended (before allowing Supabase OTP)
+ */
+router.post('/check-merchant-status', async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+
+    const merchant = await prisma.merchant.findUnique({
+      where: { email: normalizedEmail },
+      select: {
+        id: true,
+        suspendedAt: true,
+        suspendedBy: true,
+        suspendedReason: true,
+      },
+    });
+
+    // If merchant doesn't exist, allow (for registration)
+    if (!merchant) {
+      return res.json({
+        success: true,
+        canProceed: true,
+        suspended: false,
+      });
+    }
+
+    // If merchant is suspended, block
+    if (merchant.suspendedAt) {
+      return res.status(403).json({
+        success: false,
+        canProceed: false,
+        suspended: true,
+        message: 'Account has been suspended. Please contact support for assistance.',
+      });
+    }
+
+    // Merchant exists and is not suspended
+    return res.json({
+      success: true,
+      canProceed: true,
+      suspended: false,
+    });
+  } catch (error) {
+    console.error('Check merchant status error:', error);
+    return res.status(500).json({ error: 'Failed to check merchant status' });
   }
 });
 

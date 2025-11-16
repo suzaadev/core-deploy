@@ -4,14 +4,14 @@ import { config } from '../../config';
 import { logger } from '../../common/logger';
 
 /**
- * Generate a random 6-character alphanumeric slug (uppercase)
- * Example: "KMQ3ZX"
+ * Generate a random 6-digit numeric slug
+ * Example: "123456"
  */
 export function generateSlug(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const digits = '0123456789';
   let slug = '';
   for (let i = 0; i < 6; i++) {
-    slug += chars[Math.floor(Math.random() * chars.length)];
+    slug += digits[Math.floor(Math.random() * digits.length)];
   }
   return slug;
 }

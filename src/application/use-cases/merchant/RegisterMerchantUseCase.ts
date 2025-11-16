@@ -96,17 +96,17 @@ export class RegisterMerchantUseCase {
   }
 
   /**
-   * Generate unique 6-character alphanumeric slug
+   * Generate unique 6-digit numeric slug
    */
   private async generateUniqueSlug(): Promise<string> {
-    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    const digits = '0123456789';
     let attempts = 0;
     const maxAttempts = 10;
 
     while (attempts < maxAttempts) {
       let slug = '';
       for (let i = 0; i < 6; i++) {
-        slug += chars[Math.floor(Math.random() * chars.length)];
+        slug += digits[Math.floor(Math.random() * digits.length)];
       }
 
       const existing = await this.merchantRepository.findBySlug(slug);
