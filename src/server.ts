@@ -6,7 +6,9 @@ import morgan from 'morgan';
 import hpp from 'hpp';
 import { config } from './config';
 import { connectDatabase, disconnectDatabase } from './infrastructure/database/client';
+import { prisma } from './infrastructure/database/client';
 import { connectRedis, disconnectRedis } from './infrastructure/cache/redis';
+import { redisClient } from './infrastructure/cache/redis';
 import { logger, httpLogStream } from './common/logger';
 import { errorHandler, notFoundHandler } from './common/errors/errorHandler';
 import { correlationIdMiddleware } from './common/middleware/correlationId';
@@ -228,25 +230,24 @@ async function start(): Promise<void> {
     logger.info('Connecting to Redis...');
     await connectRedis();
     logger.info('Redis connected successfully');
-
     // Start HTTP server
     server = app.listen(config.port, () => {
-      logger.info(`🚀 SUZAA Core started successfully`, {
+      logger.info('🚀 SUZAA Core started successfully', {
         port: config.port,
         environment: config.nodeEnv,
         baseUrl: config.baseUrl,
         corsOrigins: config.cors.allowedOrigins,
       });
-
       // Log available endpoints
-      console.log(`\n${'='.repeat(60)}`);
+      console.log('\n' + '='.repeat(60));
       console.log('🚀 SUZAA Core Payment Gateway');
-      console.log(`${'='.repeat(60)}`);
-      console.log(`Environment: ${config.nodeEnv}`);
-      console.log(`Port: ${config.port}`);
-      console.log(`Base URL: ${config.baseUrl}`);
-      console.log(`${'='.repeat(60)}\n`);
+      console.log('='.repeat(60));
+      console.log('Environment: ' + config.nodeEnv);
+      console.log('Port: ' + config.port);
+      console.log('Base URL: ' + config.baseUrl);
+      console.log('='.repeat(60) + '\n');
       console.log('📋 Available Endpoints:\n');
+      console.log('Health & Status:');
       console.log('Health & Status:');
       console.log('  GET  /health          - Health check');
       console.log('  GET  /                - Service info\n');
@@ -282,8 +283,5 @@ async function start(): Promise<void> {
 // Start the server
 start();
 
-// Import for health check
-import { prisma } from './infrastructure/database/client';
-import { redisClient } from './infrastructure/cache/redis';
 
 export default app;

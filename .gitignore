@@ -53,3 +53,4 @@ prisma/migrations/
 tmp/
 temp/
 *.tmp
+.env.backup

@@ -157,6 +157,76 @@ router.post('/create-payment', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * PATCH /public/payment/{linkId}/status
+ * Update payment settlement status (for customers - Cancel or Claimed Paid)
+ * Note: linkId can contain slashes (slug/date/order), so we use wildcard pattern
+ * This route must come BEFORE the GET /payment/* route to avoid conflicts
+ */
+router.patch('/payment/*/status', async (req: Request, res: Response) => {
+  try {
+    // Extract linkId from the wildcard match (everything between /payment/ and /status)
+    const linkId = req.params[0];
+
+    if (!linkId) {
+      return res.status(400).json({ error: 'Link ID is required' });
+    }
+
+    const { status } = req.body;
+
+    if (!status || !['CANCELED', 'CLAIMED_PAID'].includes(status)) {
+      return res.status(400).json({ 
+        error: 'Invalid status. Must be CANCELED or CLAIMED_PAID' 
+      });
+    }
+
+    const paymentRequest = await prisma.paymentRequest.findUnique({
+      where: { linkId },
+      select: {
+        id: true,
+        status: true,
+        settlementStatus: true,
+        expiresAt: true,
+      },
+    });
+
+    if (!paymentRequest) {
+      return res.status(404).json({ error: 'Payment request not found' });
+    }
+
+    // Don't allow updates if already expired
+    const isExpired = new Date() > paymentRequest.expiresAt;
+    if (isExpired) {
+      return res.status(400).json({ 
+        error: 'Cannot update status for expired payment requests' 
+      });
+    }
+
+    // Update settlement status
+    const updated = await prisma.paymentRequest.update({
+      where: { id: paymentRequest.id },
+      data: { settlementStatus: status },
+      select: {
+        id: true,
+        linkId: true,
+        settlementStatus: true,
+        status: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      data: updated,
+      message: status === 'CANCELED' 
+        ? 'Payment request canceled' 
+        : 'Payment marked as claimed paid',
+    });
+  } catch (error) {
+    console.error('Update payment status error:', error);
+    return res.status(500).json({ error: 'Failed to update payment status' });
+  }
+});
+
 // Get payment request details with network+token combinations
 router.get('/payment/*', async (req: Request, res: Response) => {
   try {
@@ -168,7 +238,17 @@ router.get('/payment/*', async (req: Request, res: Response) => {
 
     const paymentRequest = await prisma.paymentRequest.findUnique({
       where: { linkId },
-      include: {
+      select: {
+        id: true,
+        linkId: true,
+        orderNumber: true,
+        amountFiat: true,
+        currencyFiat: true,
+        description: true,
+        status: true,
+        settlementStatus: true,
+        expiresAt: true,
+        merchantId: true,
         merchant: {
           select: {
             businessName: true,
@@ -262,6 +342,7 @@ router.get('/payment/*', async (req: Request, res: Response) => {
         currency: paymentRequest.currencyFiat,
         description: paymentRequest.description,
         status: isExpired ? 'EXPIRED' : paymentRequest.status,
+        settlementStatus: paymentRequest.settlementStatus,
         expiresAt: paymentRequest.expiresAt,
         merchant: {
           name: paymentRequest.merchant.businessName,

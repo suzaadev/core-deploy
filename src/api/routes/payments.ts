@@ -60,7 +60,7 @@ router.patch('/requests/:id/settlement', authenticate, async (req: AuthRequest, 
     const { id } = req.params;
     const { settlementStatus } = req.body;
 
-    if (!['PENDING', 'PAID', 'SETTLED', 'REJECTED', 'REISSUED'].includes(settlementStatus)) {
+    if (!['PENDING', 'PAID', 'SETTLED', 'REJECTED', 'REISSUED', 'CANCELED', 'CLAIMED_PAID'].includes(settlementStatus)) {
       return res.status(400).json({ error: 'Invalid settlement status' });
     }
 
