@@ -4,6 +4,7 @@ import { UnauthorizedError, ForbiddenError } from '../../common/errors/AppError'
 import { logger } from '../../common/logger';
 import { validateSupabaseToken } from '../../infrastructure/supabase/client';
 import { normalizeEmail } from '../../domain/utils/auth';
+import { ApiKey } from '../../domain/value-objects/ApiKey';
 
 /**
  * Extended Request interface with authenticated merchant
@@ -37,6 +38,63 @@ export async function authenticate(
 
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
+    // Check if this is an API key (starts with sza_live_)
+    if (token.startsWith('sza_live_')) {
+      // Use API key authentication
+      const merchants = await prisma.merchant.findMany({
+        where: {
+          apiKeyHash: { not: null },
+        },
+        select: {
+          id: true,
+          slug: true,
+          email: true,
+          businessName: true,
+          apiKeyHash: true,
+          suspendedAt: true,
+        },
+      });
+
+      let authenticatedMerchant = null;
+
+      // Verify API key against each merchant's stored hash
+      for (const merchant of merchants) {
+        if (!merchant.apiKeyHash) continue;
+        
+        const apiKey = ApiKey.fromHash(merchant.apiKeyHash);
+        const isValid = await apiKey.verify(token);
+
+        if (isValid) {
+          authenticatedMerchant = merchant;
+          break;
+        }
+      }
+
+      if (!authenticatedMerchant) {
+        throw new UnauthorizedError('Invalid API key');
+      }
+
+      if (authenticatedMerchant.suspendedAt) {
+        throw new ForbiddenError('Account has been suspended. Please contact support.');
+      }
+
+      req.merchant = {
+        id: authenticatedMerchant.id,
+        slug: authenticatedMerchant.slug,
+        email: authenticatedMerchant.email,
+        businessName: authenticatedMerchant.businessName,
+      };
+
+      req.authUser = {
+        id: authenticatedMerchant.id,
+        email: authenticatedMerchant.email,
+        role: 'merchant',
+      };
+
+      return next();
+    }
+
+    // Otherwise, use JWT authentication
     const supabaseUser = await validateSupabaseToken(token);
     if (!supabaseUser) {
       throw new UnauthorizedError('Invalid authentication token');

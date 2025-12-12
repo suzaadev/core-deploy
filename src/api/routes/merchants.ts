@@ -3,6 +3,7 @@ import { Router, Response } from 'express';
 import { authenticateAdmin, AdminRequest } from '../middleware/adminAuth';
 import { prisma } from '../../infrastructure/database/client';
 import { generateSlug } from '../../domain/utils/auth';
+import { ApiKey } from '../../domain/value-objects/ApiKey';
 
 const router = Router();
 
@@ -624,6 +625,73 @@ router.delete('/:merchantId', authenticateAdmin, async (req: AdminRequest, res: 
     return res.status(500).json({ 
       error: error.message || 'Failed to delete merchant' 
     });
+  }
+});
+
+/**
+ * POST /merchants/api-key
+ * Generate a new API key (replaces existing if any)
+ */
+router.post('/api-key', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.merchant) {
+      return res.status(404).json({ error: 'Merchant profile not found' });
+    }
+
+    // Generate new API key
+    const { apiKey, plaintext, fingerprint } = await ApiKey.generate();
+
+    // Store in merchant table (replaces existing key)
+    await prisma.merchant.update({
+      where: { id: req.merchant.id },
+      data: {
+        apiKeyHash: apiKey.getHash(),
+        apiKeyFingerprint: fingerprint,
+        apiKeyCreatedAt: new Date(),
+      },
+    });
+
+    // Return plaintext key once
+    return res.json({
+      apiKey: plaintext,
+      fingerprint: fingerprint,
+    });
+  } catch (error) {
+    console.error('Generate API key error:', error);
+    return res.status(500).json({ error: 'Failed to generate API key' });
+  }
+});
+
+/**
+ * GET /merchants/api-key
+ * Get API key status
+ */
+router.get('/api-key', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.merchant) {
+      return res.status(404).json({ error: 'Merchant profile not found' });
+    }
+
+    const merchant = await prisma.merchant.findUnique({
+      where: { id: req.merchant.id },
+      select: {
+        apiKeyFingerprint: true,
+        apiKeyCreatedAt: true,
+      },
+    });
+
+    if (!merchant || !merchant.apiKeyFingerprint) {
+      return res.json({ hasKey: false });
+    }
+
+    return res.json({
+      hasKey: true,
+      fingerprint: merchant.apiKeyFingerprint,
+      createdAt: merchant.apiKeyCreatedAt?.toISOString() || null,
+    });
+  } catch (error) {
+    console.error('Get API key error:', error);
+    return res.status(500).json({ error: 'Failed to fetch API key' });
   }
 });
 

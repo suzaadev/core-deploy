@@ -15,18 +15,22 @@ export class ApiKey {
 
   /**
    * Generate a new API key
-   * Returns both the ApiKey object (with hash) and the plaintext key to show user once
+   * Returns: apiKey object, plaintext key, and fingerprint (last 4-6 chars)
    */
-  static async generate(): Promise<{ apiKey: ApiKey; plaintext: string }> {
-    // Generate cryptographically secure random key: suzaa_live_32_random_bytes
+  static async generate(): Promise<{ apiKey: ApiKey; plaintext: string; fingerprint: string }> {
+    // Generate cryptographically secure random key: sza_live_<random>
     const randomBytes = crypto.randomBytes(32).toString('hex');
-    const plaintext = `suzaa_live_${randomBytes}`;
+    const plaintext = `sza_live_${randomBytes}`;
 
     const hashedValue = await bcrypt.hash(plaintext, 10);
+    
+    // Extract fingerprint: last 4-6 characters
+    const fingerprint = `...${plaintext.slice(-6)}`;
 
     return {
       apiKey: new ApiKey(hashedValue),
       plaintext,
+      fingerprint,
     };
   }
 
@@ -44,7 +48,7 @@ export class ApiKey {
    * Verify if plaintext API key matches this hashed key
    */
   async verify(plaintext: string): Promise<boolean> {
-    if (!plaintext || !plaintext.startsWith('suzaa_')) {
+    if (!plaintext || !plaintext.startsWith('sza_live_')) {
       return false;
     }
     return bcrypt.compare(plaintext, this.hashedValue);

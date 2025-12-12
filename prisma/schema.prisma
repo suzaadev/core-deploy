@@ -84,6 +84,8 @@ model Merchant {
   pinExpiresAt                DateTime?
   pinAttempts                 Int          @default(0)
   apiKeyHash                  String?      @unique @db.VarChar(64)
+  apiKeyFingerprint           String?      @db.VarChar(20)
+  apiKeyCreatedAt             DateTime?
   webhookSecret               String       @default(uuid()) @db.VarChar(64)
   emailVerified               Boolean      @default(false)
   phoneNumber                 String?      @db.VarChar(20)
