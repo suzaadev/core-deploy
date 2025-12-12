@@ -25,6 +25,8 @@ const merchantSelect = {
   createdAt: true,
   updatedAt: true,
   lastLoginAt: true,
+  apiKeyFingerprint: true,
+  apiKeyCreatedAt: true,
 };
 
 async function generateUniqueSlug(): Promise<string> {
