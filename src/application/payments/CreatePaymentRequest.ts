@@ -19,6 +19,7 @@ interface CreatePaymentRequestInput {
   amountFiat: number;
   description?: string;
   expiryMinutes?: number;
+  redirectUrl?: string;
   createdBy: 'merchant' | 'buyer';
   buyerIp?: string;
   buyerNote?: string;
@@ -41,6 +42,7 @@ export async function createPaymentRequest(
     amountFiat,
     description,
     expiryMinutes,
+    redirectUrl,
     createdBy,
     buyerIp,
     buyerNote,
@@ -136,6 +138,7 @@ export async function createPaymentRequest(
             createdBy,
             createdByIp: buyerIp,
             buyerNote,
+            redirectUrl,
             status: 'PENDING',
           },
         });
@@ -164,7 +167,7 @@ export async function createPaymentRequest(
       await recordBuyerOrder(merchantId, buyerIp);
     }
 
-    const paymentUrl = `${config.baseUrl}/${linkId}`;
+    const paymentUrl = `${config.paymentPortalUrl}/recipient/${linkId}`;
 
     return {
       success: true,

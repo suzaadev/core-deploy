@@ -146,6 +146,7 @@ model PaymentRequest {
   createdBy        String           @db.VarChar(10)
   createdByIp      String?          @db.VarChar(45)
   buyerNote        String?          @db.Text
+  redirectUrl      String?          @db.VarChar(500)
   status           PaymentStatus    @default(PENDING)
   settlementStatus SettlementStatus @default(PENDING)
   createdAt        DateTime         @default(now())

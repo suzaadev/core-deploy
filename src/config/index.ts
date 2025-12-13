@@ -41,6 +41,7 @@ export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
   baseUrl: process.env.BASE_URL || 'http://localhost:3000',
+  paymentPortalUrl: process.env.PAYMENT_PORTAL_URL || process.env.NEXT_PUBLIC_PAYMENT_PORTAL_URL || 'http://localhost:3065',
 
   // Database
   database: {

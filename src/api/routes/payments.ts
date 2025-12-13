@@ -27,6 +27,7 @@ router.get('/requests', authenticate, async (req: AuthRequest, res: Response) =>
         createdBy: true,
         settlementStatus: true,
         expiresAt: true,
+        redirectUrl: true,
         createdAt: true,
       },
     });
@@ -92,6 +93,16 @@ router.patch('/requests/:id/settlement', authenticate, async (req: AuthRequest, 
   }
 });
 
+// Basic URL validation - must start with http:// or https://
+function isValidUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 // Create payment request (existing endpoint)
 router.post('/requests', authenticate, async (req: AuthRequest, res: Response) => {
   try {
@@ -99,7 +110,7 @@ router.post('/requests', authenticate, async (req: AuthRequest, res: Response) =
       return res.status(404).json({ error: 'Merchant profile not found' });
     }
 
-    const { amount, description, expiryMinutes } = req.body;
+    const { amount, description, expiryMinutes, redirectUrl } = req.body;
     const parsedAmount = Number(amount);
     const parsedExpiry = Number(expiryMinutes || 60);
 
@@ -107,11 +118,22 @@ router.post('/requests', authenticate, async (req: AuthRequest, res: Response) =
       return res.status(400).json({ error: 'Valid amount is required' });
     }
 
+    // Validate redirectUrl if provided
+    if (redirectUrl !== undefined && redirectUrl !== null) {
+      if (typeof redirectUrl !== 'string' || redirectUrl.trim() === '') {
+        return res.status(400).json({ error: 'redirectUrl must be a non-empty string' });
+      }
+      if (!isValidUrl(redirectUrl.trim())) {
+        return res.status(400).json({ error: 'redirectUrl must be a valid URL starting with http:// or https://' });
+      }
+    }
+
     const result = await createPaymentRequest({
       merchantId: req.merchant.id,
       amountFiat: parsedAmount,
       description,
       expiryMinutes: parsedExpiry,
+      redirectUrl: redirectUrl ? redirectUrl.trim() : undefined,
       createdBy: 'merchant',
     });
 

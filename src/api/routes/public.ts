@@ -248,6 +248,7 @@ router.get('/payment/*', async (req: Request, res: Response) => {
         status: true,
         settlementStatus: true,
         expiresAt: true,
+        redirectUrl: true,
         merchantId: true,
         merchant: {
           select: {
@@ -344,6 +345,7 @@ router.get('/payment/*', async (req: Request, res: Response) => {
         status: isExpired ? 'EXPIRED' : paymentRequest.status,
         settlementStatus: paymentRequest.settlementStatus,
         expiresAt: paymentRequest.expiresAt,
+        redirectUrl: paymentRequest.redirectUrl,
         merchant: {
           name: paymentRequest.merchant.businessName,
           slug: paymentRequest.merchant.slug,
